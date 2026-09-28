@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ theme --
+   A restrained engineering palette: off-white paper, near-black ink, one
+   accent for interaction, amber for caution.  No gradients, no glass.        */
+
+@theme {
+  --color-paper: #f6f6f4;
+  --color-surface: #ffffff;
+  --color-ink: #14161a;
+  --color-ink-soft: #4a4f57;
+  --color-ink-faint: #7b8189;
+  --color-rule: #dcdcd6;
+  --color-rule-soft: #e9e9e4;
+  --color-accent: #1d4ed8;
+  --color-accent-soft: #e8eefc;
+  --color-caution: #b45309;
+  --color-caution-soft: #fdf3e3;
+  --color-positive: #0f766e;
+  --color-positive-soft: #e6f2f0;
+  --color-observed: #1d4ed8;
+  --color-simulated: #b45309;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, "Cascadia Mono",
+    Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* Recharts defaults, tuned to the same palette. */
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--color-rule);
+}
+.recharts-cartesian-grid line {
+  stroke: var(--color-rule-soft);
+}
+.recharts-text {
+  fill: var(--color-ink-faint);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.recharts-legend-item-text {
+  color: var(--color-ink-soft) !important;
+  font-size: 12px;
+}
+
+/* Thin, unobtrusive scrollbars for the map and timeline panels. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-rule) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-rule);
+  border-radius: 999px;
+}
+
+@keyframes flowlab-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-pulse-soft {
+  animation: flowlab-pulse 2.2s ease-in-out infinite;
+}
+
+/* ----------------------------------------------------------------- print ---
+   The printable brief must survive a browser print dialog on an ordinary
+   printer: no navigation, no dark background, and no clipped tables.         */
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  body {
+    background: #ffffff;
+  }
+  header,
+  footer,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  table {
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+  a[href]::after {
+    content: "";
+  }
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

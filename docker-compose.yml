@@ -1,0 +1,46 @@
+# FLOWLAB - local stack.
+#
+#   docker compose up --build
+#
+# API      -> http://localhost:8000   (docs at /docs)
+# Frontend -> http://localhost:5173
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      FLOWLAB_DATA_DIR: /data
+      # Set to "0" to use an NVIDIA GPU with the NVIDIA container runtime.
+      FLOWLAB_DEVICE: ${FLOWLAB_DEVICE:-auto}
+      FLOWLAB_SAMPLE_FPS: ${FLOWLAB_SAMPLE_FPS:-10}
+    volumes:
+      - flowlab-data:/data
+      # Optional: point at a local checkpoint instead of downloading one.
+      # - ./models:/models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  flowlab-data:

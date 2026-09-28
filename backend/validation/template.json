@@ -1,0 +1,24 @@
+{
+  "clip": "REPLACE_WITH_YOUR_CLIP.mp4",
+  "clip_source": "Where the footage came from, e.g. 'my own phone at the school gate'",
+  "permission": "Who is allowed to use it, e.g. 'my own footage' or 'CC-BY-SA 4.0, author X'",
+  "annotated_by": "YOUR NAME",
+  "annotated_at": "YYYY-MM-DD",
+  "notes": "Anything the reader needs to interpret the numbers: shadows, occlusions, a lorry parked out of the counting area, and so on.",
+
+  "regions": {
+    "queue": [[0.52, 0.05], [0.66, 0.05], [0.66, 0.45], [0.52, 0.45]],
+    "entry": [[0.0, 0.1], [1.0, 0.1]],
+    "exit": [[0.0, 0.9], [1.0, 0.9]],
+    "exit_direction": "any"
+  },
+
+  "arrivals_s": [],
+  "departures_s": [],
+
+  "queue_counts": [
+    { "time_s": 10.0, "count": 0 }
+  ],
+
+  "queue_visits": []
+}

@@ -1,0 +1,136 @@
+import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { AnalysisProvider, useAnalysis } from "./state/AnalysisContext";
+import { PrintBrief } from "./components/PrintBrief";
+import Home from "./pages/Home";
+import Analysis from "./pages/Analysis";
+import Simulation from "./pages/Simulation";
+import NotFound from "./pages/NotFound";
+
+function Header() {
+  const { analysisId } = useAnalysis();
+  return (
+    <header className="sticky top-0 z-30 border-b border-rule bg-paper/95 backdrop-blur-sm">
+      <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-6">
+        <Link to="/" className="flex items-baseline gap-2">
+          <span className="font-mono text-[15px] font-semibold tracking-tight text-ink">
+            FLOWLAB
+          </span>
+          <span className="hidden text-[11px] uppercase tracking-[0.18em] text-ink-faint sm:inline">
+            traffic digital twin
+          </span>
+        </Link>
+        <nav className="flex items-center gap-1 text-[13px]">
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              `rounded px-2.5 py-1.5 transition-colors ${
+                isActive ? "bg-accent-soft text-accent" : "text-ink-soft hover:text-ink"
+              }`
+            }
+          >
+            Upload
+          </NavLink>
+          <NavLink
+            to="/analysis"
+            className={({ isActive }) =>
+              `rounded px-2.5 py-1.5 transition-colors ${
+                isActive ? "bg-accent-soft text-accent" : "text-ink-soft hover:text-ink"
+              }`
+            }
+          >
+            Analysis
+          </NavLink>
+          <NavLink
+            to="/simulation"
+            className={({ isActive }) =>
+              `rounded px-2.5 py-1.5 transition-colors ${
+                isActive ? "bg-accent-soft text-accent" : "text-ink-soft hover:text-ink"
+              }`
+            }
+          >
+            Simulation
+          </NavLink>
+        </nav>
+        <div className="ml-auto flex items-center gap-4">
+          {analysisId && (
+            <span className="font-mono text-[11px] text-ink-faint">
+              analysis/{analysisId}
+            </span>
+          )}
+          <span
+            className="hidden rounded border border-rule px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-ink-faint md:inline"
+            title="No face, plate or identity processing. The footage itself is unchanged and stays on this machine."
+          >
+            vehicle tracking only
+          </span>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="border-t border-rule py-6">
+      <div className="mx-auto max-w-[1400px] space-y-1 px-6 text-[11px] leading-relaxed text-ink-faint">
+        <p>
+          FLOWLAB tracks vehicles, never people: there is no face, plate, identity or
+          demographic processing in this application. Every metric is a documented
+          calculation over anonymous trajectories, and simulations are hypothetical
+          models rather than predictions.
+        </p>
+        <p>
+          The uploaded and annotated videos are kept in the local data folder — they can
+          still contain identifiable people or plates, and an anonymous track id does
+          not change that. Use Delete on an analysis to remove its files, and only use
+          footage you have permission to use. The model weights are downloaded once on
+          first run; after that, processing is entirely local.
+        </p>
+      </div>
+    </footer>
+  );
+}
+
+function Shell() {
+  const { analysisId } = useAnalysis();
+  return (
+    <div className="flex min-h-full flex-col">
+      <Header />
+      <main className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8 print:max-w-none print:px-0 print:py-0">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/analysis" element={<Analysis />} />
+          <Route path="/analysis/:analysisId" element={<Analysis />} />
+          <Route path="/brief/:analysisId" element={<PrintBrief />} />
+          <Route path="/simulation" element={<Simulation />} />
+          <Route path="/simulation/:analysisId" element={<Simulation />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </main>
+      <Footer />
+      {analysisId && <AnalysisPicker />}
+    </div>
+  );
+}
+
+/** Quick access to the printable brief for whatever is open. */
+function AnalysisPicker() {
+  const { analysisId } = useAnalysis();
+  return (
+    <Link
+      to={`/brief/${analysisId}`}
+      className="sr-only focus:not-sr-only focus:absolute focus:right-4 focus:top-4 focus:z-50 focus:rounded focus:border focus:bg-surface focus:px-3 focus:py-1.5 focus:text-[12px]"
+    >
+      Printable analysis brief
+    </Link>
+  );
+}
+
+export default function App() {
+  return (
+    <AnalysisProvider>
+      <Shell />
+    </AnalysisProvider>
+  );
+}
