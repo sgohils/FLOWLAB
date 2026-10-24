@@ -36,8 +36,9 @@ dependencies = [
 [[tool.vercel.subscribers]]
 entrypoint = "backend.worker"
 
-# Vercel builds with uv. Use CPU wheels rather than bundling CUDA libraries.
-# pip-based local/Docker installs can still select their own PyTorch build.
+# uv project installs use CPU wheels rather than bundling CUDA libraries.
+# Requirements-based installs declare the CPU index in backend/requirements.txt.
+# A pip install of this project can still select its own PyTorch build.
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"

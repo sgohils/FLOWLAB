@@ -105,7 +105,8 @@ def test_requirements_txt_and_pyproject_declare_the_same_bounds():
         line.split("#", 1)[0].strip()
         for line in doctor.REQUIREMENTS_FILE.read_text(encoding="utf-8").splitlines()
     ]
-    runtime = [line for line in runtime if line]
+    # Installer options select CPU wheels without changing declared bounds.
+    runtime = [line for line in runtime if line and not line.startswith("-")]
 
     declared = tomllib.loads(
         (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")

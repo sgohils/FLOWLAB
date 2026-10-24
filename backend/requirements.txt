@@ -10,6 +10,10 @@
 # Test-only dependencies are NOT here.  Use backend/requirements-dev.txt, or
 # `pip install -e ".[dev]"` from the repository root.
 
+# Vercel can install this file directly, bypassing tool.uv.sources. Keep CPU
+# wheel selection here too; otherwise Linux PyPI torch pulls in CUDA libraries.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
 python-multipart>=0.0.20,<1
