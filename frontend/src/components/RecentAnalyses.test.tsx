@@ -65,7 +65,7 @@ describe("RecentAnalyses", () => {
     analysesMock.mockResolvedValue([item()]);
     renderList();
     await screen.findByText("gate.mp4");
-    expect(screen.getByText(/most recent analyses in the local database/)).toBeInTheDocument();
+    expect(screen.getByText(/most recent saved analyses/)).toBeInTheDocument();
     expect(screen.queryByText(/Everything already on this machine/)).not.toBeInTheDocument();
   });
 
@@ -78,7 +78,7 @@ describe("RecentAnalyses", () => {
   it("explains an empty machine rather than showing a blank panel", async () => {
     analysesMock.mockResolvedValue([]);
     renderList();
-    expect(await screen.findByText(/Nothing stored on this machine yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No saved analyses yet/)).toBeInTheDocument();
   });
 
   it("announces a failure to list, politely", async () => {
@@ -164,7 +164,7 @@ describe("RecentAnalyses, deleting", () => {
     renderList();
     await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
     expect(window.confirm).toHaveBeenCalledWith(
-      `Delete "gate.mp4" and all of its local files?`,
+      `Delete "gate.mp4" and all of its stored files?`,
     );
   });
 

@@ -34,6 +34,11 @@ async function flush() {
 }
 
 describe("ApiHealthBanner", () => {
+  it("does not report a missing model when hosted detection belongs to a queue worker", async () => {
+    healthMock.mockResolvedValue(health({ model_loaded: false, processing_mode: "queue" }));
+    const { container } = render(<ApiHealthBanner />);
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
   it("shows nothing at all when the backend is healthy", async () => {
     healthMock.mockResolvedValue(health());
     const { container } = render(<ApiHealthBanner />);

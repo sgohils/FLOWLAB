@@ -32,7 +32,7 @@ function Header() {
             Upload
           </NavLink>
           <NavLink
-            to="/analysis"
+            to={analysisId ? `/analysis/${analysisId}` : "/analysis"}
             className={({ isActive }) =>
               `rounded px-2.5 py-1.5 transition-colors ${
                 isActive ? "bg-accent-soft text-accent" : "text-ink-soft hover:text-ink"
@@ -42,7 +42,7 @@ function Header() {
             Analysis
           </NavLink>
           <NavLink
-            to="/simulation"
+            to={analysisId ? `/simulation/${analysisId}` : "/simulation"}
             className={({ isActive }) =>
               `rounded px-2.5 py-1.5 transition-colors ${
                 isActive ? "bg-accent-soft text-accent" : "text-ink-soft hover:text-ink"
@@ -60,7 +60,7 @@ function Header() {
           )}
           <span
             className="hidden rounded border border-rule px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-ink-faint md:inline"
-            title="No face, plate or identity processing. The footage itself is unchanged and stays on this machine."
+            title="No face, plate or identity processing. Source footage can still contain identifiable people and plates."
           >
             vehicle tracking only
           </span>
@@ -81,11 +81,11 @@ function Footer() {
           models rather than predictions.
         </p>
         <p>
-          The uploaded and annotated videos are kept in the local data folder — they can
+          The uploaded and annotated videos are kept by the backend and can
           still contain identifiable people or plates, and an anonymous track id does
           not change that. Use Delete on an analysis to remove its files, and only use
-          footage you have permission to use. The model weights are downloaded once on
-          first run; after that, processing is entirely local.
+          footage you have permission to use. Hosted deployments use private cloud
+          storage; local deployments store footage on the backend machine.
         </p>
       </div>
     </footer>
@@ -98,6 +98,10 @@ function Shell() {
     <div className="flex min-h-full flex-col">
       <a
         href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:border focus:bg-surface focus:px-3 focus:py-1.5 focus:text-[12px]"
       >
         Skip to content
@@ -105,6 +109,7 @@ function Shell() {
       <Header />
       <main
         id="main-content"
+        tabIndex={-1}
         className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8 print:max-w-none print:px-0 print:py-0"
       >
         <Routes>

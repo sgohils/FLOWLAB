@@ -7,6 +7,9 @@ the suggested configuration was a second detection of the same Python app,
 so there is no `app` service. The backend root remains `.` because imports and
 Python package metadata are relative to the repository root.
 
+The service names, public paths, private queue subscriber and frontend-to-backend
+binding below were confirmed by the repository owner.
+
 | Public path | Service | Purpose |
 | --- | --- | --- |
 | `/api/blob-upload` | frontend | Node function for Blob upload authorization/callbacks |
@@ -17,6 +20,16 @@ The frontend Node function calls the backend using its `BACKEND_URL` binding.
 Vercel supplies this URL at runtime. It is never a `VITE_*` variable, a build
 input, a fixed hostname, or a middleware dependency. Browser calls use the
 public same-origin `/api` paths. Rewrites preserve the API prefix.
+
+React uses normal browser paths on hosted deployments, including direct links
+to `/analysis/demo` and `/simulation/demo`. Old `/#/analysis/demo` bookmarks are
+converted on startup. In-page upload/skip controls do not change the route.
+
+The bundled demo, its replay, exports, presets and simulation require no
+PostgreSQL, Blob credentials or detector weights. Hosted startup does not write
+a demo row to PostgreSQL. Saved uploads still need the infrastructure below;
+missing database configuration or tables return an actionable 503 response.
+Hosted health probes check the API without loading the queue worker's model.
 
 `backend.worker` is a private queue subscriber compiled from
 `[[tool.vercel.subscribers]]` in `pyproject.toml`. It has no public rewrite.
@@ -92,6 +105,19 @@ Repair that environment (`.venv/Scripts/python.exe -m ensurepip --upgrade` on
 Windows), install the runtime dependencies, and rerun `vercel dev` after
 connecting the hosted environment. No live PostgreSQL/Blob/Queues integration
 has been exercised yet.
+
+The public deployment at `https://flowlab1.vercel.app` was checked on
+2026-10-24. The website and both demo deep links returned HTML successfully,
+but all checked API endpoints returned Vercel's `FUNCTION_INVOCATION_FAILED`
+500 response. The site was still serving the older `index-DvA2WD2L.js` bundle;
+the runtime and router fixes in this checkout had not been deployed. Reading
+runtime logs requires a Vercel account login, which is not configured in this
+workspace. Redeploy the changes and verify the API again; do not treat the
+successful static website response as backend readiness.
+
+Locally, a fresh process with `VERCEL=1`, `FLOWLAB_HOSTED=1`, and no database or
+Blob credentials served the demo, replay, exports and presets and completed a
+simulation. Missing upload/storage configuration returned an explanatory 503.
 
 Use deployment access protection for sensitive footage. This application has
 no user accounts or per-user authorization. Upload intent tokens authorize a

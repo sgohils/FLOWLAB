@@ -510,3 +510,4 @@ class Health(BaseModel):
     device: str
     model_name: str
     message: str | None = None
+    processing_mode: Literal["local", "queue"] = "local"

@@ -40,7 +40,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
       setItems([]);
       setError(
         caught instanceof ApiError
-          ? caught.message
+          ? [caught.message, caught.hint].filter(Boolean).join(" ")
           : "The list of past analyses could not be read.",
       );
     } finally {
@@ -53,7 +53,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
   }, [refresh]);
 
   const remove = async (item: AnalysisListItem) => {
-    if (!window.confirm(`Delete "${item.filename}" and all of its local files?`)) return;
+    if (!window.confirm(`Delete "${item.filename}" and all of its stored files?`)) return;
     setBusyId(item.analysis_id);
     setError(null);
     setNotice(null);
@@ -83,6 +83,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
       {error && (
         <Notice tone="error" title="The saved analyses could not be listed" live>
           {error}
+          <Button variant="secondary" className="ml-3" onClick={() => void refresh()}>Retry</Button>
         </Notice>
       )}
       {notice && (
@@ -95,9 +96,9 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
         <Panel role="status" className="p-5 text-[13px] text-ink-faint">
           Loading saved analyses…
         </Panel>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 ? !error && (
         <Panel className="p-5 text-[13px] leading-relaxed text-ink-soft">
-          Nothing stored on this machine yet. Analyses you upload, and the demo
+          No saved analyses yet. Analyses you upload, and the demo
           dataset, are listed here so you can reopen or delete them.
         </Panel>
       ) : (
@@ -168,7 +169,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
                         }}
                         disabled={busyId === item.analysis_id}
                         ariaDisabled={demo}
-                        title={demo ? undefined : "Delete the record and its local files."}
+                        title={demo ? undefined : "Delete the record and its stored files."}
                       >
                         Delete
                       </Button>
@@ -188,7 +189,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
       )}
 
       <p className="text-[11px] leading-relaxed text-ink-faint">
-        These are the {LIST_LIMIT} most recent analyses in the local database. Opening
+        These are the {LIST_LIMIT} most recent saved analyses. Opening
         one loads its stored measurements; deleting one also removes the uploaded video,
         the annotated copy and the results.
       </p>

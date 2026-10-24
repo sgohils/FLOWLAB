@@ -97,7 +97,7 @@ export function ApiHealthBanner() {
   // Branch on `status`, not only on `model_loaded`: a degraded backend can hold a
   // loaded model and still be reporting something the user needs to know, and
   // its `message` is the only place that says what.
-  if (health.status === "ok" && health.model_loaded) return null;
+  if (health.status === "ok" && (health.model_loaded || health.processing_mode === "queue")) return null;
 
   if (health.model_loaded) {
     return (

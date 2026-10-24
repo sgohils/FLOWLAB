@@ -34,6 +34,7 @@ interface SimulationPanelProps {
   presets: ScenarioPreset[];
   /** True when `presets` is the built-in list because the request failed. */
   presetsOffline: boolean;
+  presetsLoading?: boolean;
 }
 
 /**
@@ -174,6 +175,7 @@ export function SimulationPanel({
   disabled = false,
   presets,
   presetsOffline = false,
+  presetsLoading = false,
 }: SimulationPanelProps) {
   const effectiveService = serviceTime ? serviceTime / serviceMultiplier : null;
   const effectiveRate = arrivalRate ? arrivalRate * volume : null;
@@ -187,12 +189,14 @@ export function SimulationPanel({
   return (
     <div className="space-y-4">
       <Panel className="p-5">
-        <div className="flex items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <Label>Ask a question</Label>
           <div className="flex items-center gap-2">
             {presetsOffline && <Pill tone="caution">built-in presets</Pill>}
+            {presetsLoading && <span role="status" className="text-[11px] text-ink-faint">Loading presets…</span>}
             <button
               onClick={onReset}
+              disabled={disabled || running}
               className="text-[11px] text-ink-faint underline-offset-2 hover:text-ink hover:underline"
             >
               reset to observed
@@ -213,6 +217,7 @@ export function SimulationPanel({
               <button
                 key={preset.key}
                 onClick={() => onChange(preset.patch)}
+                disabled={disabled || running}
                 aria-pressed={active}
                 className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
                   active ? "bg-ink text-paper" : "text-ink-soft hover:bg-paper"

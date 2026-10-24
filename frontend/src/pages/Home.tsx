@@ -36,7 +36,7 @@ const STAGES = [
 
 export default function Home() {
   const navigate = useNavigate();
-  const { load, openDemo, job, analysis } = useAnalysis();
+  const { openDemo, job, analysis } = useAnalysis();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
@@ -49,14 +49,17 @@ export default function Home() {
   }, []);
 
   const onUploaded = (response: UploadResponse) => {
-    void load(response.analysis_id);
+    navigate(`/analysis/${response.analysis_id}`);
   };
 
   const startDemo = async () => {
     setDemoBusy(true);
     setDemoError(null);
     try {
-      await openDemo();
+      if (!await openDemo()) {
+        setDemoError("The demo could not be loaded. Please retry shortly.");
+        return;
+      }
       navigate("/analysis/demo");
     } catch {
       setDemoError("The demo dataset could not be loaded. Is the backend running?");
@@ -80,12 +83,15 @@ export default function Home() {
           never on people.
         </p>
         <div className="mt-7 flex flex-wrap items-center gap-3">
-          <a
-            href="#upload"
+          <button
+            onClick={() => {
+              document.getElementById("upload")?.scrollIntoView({ behavior: "smooth" });
+              document.querySelector<HTMLButtonElement>("#upload button")?.focus({ preventScroll: true });
+            }}
             className="inline-flex items-center rounded border border-ink bg-ink px-5 py-2.5 text-[13px] font-medium text-paper transition-colors hover:bg-ink-soft"
           >
             Analyze Traffic Video
-          </a>
+          </button>
           <Button variant="secondary" onClick={startDemo} disabled={demoBusy}>
             {demoBusy ? "Loading demo…" : "Try Sample Analysis"}
           </Button>
@@ -112,7 +118,11 @@ export default function Home() {
       <div id="upload">
         <Section
           title="Upload"
-          subtitle="The video is analysed locally; nothing leaves this machine."
+          subtitle={meta?.storage_mode === "hosted"
+            ? "Videos are uploaded to private cloud storage and processed by a background worker."
+            : meta?.storage_mode === "local"
+              ? "Videos are processed and stored on the machine running the backend."
+              : "Videos are sent to the FLOWLAB backend for processing and storage."}
         >
           {processing ? (
             <ProcessingStatus
@@ -128,7 +138,7 @@ export default function Home() {
 
       <Section
         title="Saved analyses"
-        subtitle="The most recent analyses already on this machine, up to 100 of them. Reopen one, or delete it together with its files."
+        subtitle="The most recent saved analyses, up to 100 of them. Reopen one, or delete it together with its files."
       >
         <RecentAnalyses currentId={analysis?.analysis_id ?? null} />
       </Section>
@@ -176,14 +186,14 @@ export default function Home() {
         </Panel>
       </Section>
 
-      <Section title="Privacy and what stays on your machine">
+      <Section title="Privacy and stored footage">
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel className="p-5">
             <Label>What FLOWLAB does not do</Label>
             <ul className="mt-3 grid gap-2 text-[13px] leading-relaxed text-ink-soft">
               {[
                 "Only vehicle classes are requested from the detector — there is no face, plate, identity or demographic processing anywhere in the code.",
-                "No cloud upload, no telemetry, no account. Analysis runs on this machine against a local SQLite file and local folders.",
+                "Hosted deployments upload videos to private cloud storage for processing. Local deployments store videos on the machine running the backend.",
                 "Vehicle ids (Car #014) are labels invented for one analysis. They are not linked to a plate, a person or another video.",
                 "Exports contain measurements only — no video, no frames, no original filename, no file paths.",
               ].map((item) => (
@@ -198,9 +208,9 @@ export default function Home() {
             <Label>What is still true of the footage</Label>
             <ul className="mt-3 grid gap-2 text-[13px] leading-relaxed text-ink-soft">
               {[
-                "The uploaded video and the annotated video are stored on this machine and can contain identifiable people and number plates. An anonymous track id does not anonymise the source footage.",
-                "Nothing is deleted automatically. Files live under the data folder until you press Delete on the analysis, which removes the upload, the annotated video and the results.",
-                "The first run downloads the YOLO model file from the Ultralytics release server. After that, processing is fully local — but the application is not completely offline until the weights are on disk.",
+                "The uploaded and annotated videos can contain identifiable people and number plates. An anonymous track id does not anonymise the source footage.",
+                "Nothing is deleted automatically. Press Delete on an analysis to remove its uploaded video, annotated video and results from the configured storage.",
+                "The processing backend downloads the YOLO model file on first use if it is not already available.",
                 "Do not use footage you are not permitted to use, and keep private school footage off shared machines.",
               ].map((item) => (
                 <li key={item} className="flex gap-2">

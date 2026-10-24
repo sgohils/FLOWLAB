@@ -69,7 +69,9 @@ def save_analysis(
 
 
 def load_analysis(analysis_id: str) -> Analysis | None:
-    """Read a stored analysis, falling back to the bundled demo dataset."""
+    """Serve the bundled demo without requiring any external storage."""
+    if analysis_id == DEMO_ID:
+        return demo_analysis()
     payload = read_result(settings, analysis_id)
     if payload:
         try:
@@ -78,8 +80,6 @@ def load_analysis(analysis_id: str) -> Analysis | None:
         except ValueError as exc:
             logger.warning("Stored analysis %s is invalid: %s", analysis_id, exc)
             return None
-    if analysis_id == DEMO_ID:
-        return demo_analysis()
     return None
 
 
@@ -91,8 +91,10 @@ def register_demo() -> Analysis | None:
     cannot leave the list showing numbers from an older build.
     """
     analysis = demo_analysis()
-    if analysis is None:
-        return None
+    if analysis is None or settings.hosted:
+        # The demo belongs to this build, not a PostgreSQL/Blob record. In
+        # particular, missing credentials must never prevent API startup.
+        return analysis
     record = database.get(DEMO_ID)
     if record is None:
         database.create(
@@ -114,6 +116,8 @@ def register_demo() -> Analysis | None:
 
 
 def annotated_file(analysis_id: str) -> Path | None:
+    if analysis_id == DEMO_ID:
+        return None
     if settings.hosted:
         return _cloud_media(f"processed/{analysis_id}/annotated.mp4")
     path = annotated_path(settings, analysis_id)
@@ -121,6 +125,8 @@ def annotated_file(analysis_id: str) -> Path | None:
 
 
 def source_file(analysis_id: str) -> Path | None:
+    if analysis_id == DEMO_ID:
+        return None
     record = database.get(analysis_id)
     if not record or not record.get("upload_path"):
         return None

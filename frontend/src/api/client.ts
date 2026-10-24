@@ -50,12 +50,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       "The FLOWLAB backend is not reachable.",
       0,
-      "Start it with `uvicorn backend.main:app --port 8000` and reload.",
+      "Check your connection and retry. If this continues, check the backend deployment.",
     );
   }
   if (!response.ok) {
-    let message = `Request failed (${response.status}).`;
-    let hint: string | null = null;
+    let message = response.status >= 500
+      ? "The FLOWLAB backend could not complete this request."
+      : `Request failed (${response.status}).`;
+    let hint: string | null = response.status >= 500
+      ? "Retry shortly. If this continues, check the backend's Vercel runtime logs and environment configuration."
+      : null;
     try {
       const body = await response.json();
       message = body.message ?? body.detail ?? message;
@@ -66,7 +70,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           )
           .join("; ");
       }
-      hint = body.hint ?? null;
+      hint = body.hint ?? hint;
     } catch {
       /* non-JSON error body: keep the generic message */
     }

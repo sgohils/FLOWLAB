@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./client";
+import { api, ApiError } from "./client";
 
 /**
  * The client owns the query strings, so the shape of a request is asserted
@@ -21,6 +21,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.resetModules();
+});
+
+it("explains an HTML platform error without exposing its response body", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>crashed</html>", { status: 500 })));
+  await expect(api.demo()).rejects.toMatchObject({
+    name: "ApiError", status: 500,
+    message: "The FLOWLAB backend could not complete this request.",
+    hint: expect.stringContaining("Vercel runtime logs"),
+  } satisfies Partial<ApiError>);
 });
 
 it("joins an explicit API origin without a double slash", async () => {

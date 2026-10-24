@@ -369,9 +369,11 @@ export interface Health {
   device: string;
   model_name: string;
   message: string | null;
+  processing_mode?: "local" | "queue";
 }
 
 export interface Meta {
+  storage_mode?: "local" | "hosted";
   model_name: string;
   device: string;
   vehicle_classes: string[];

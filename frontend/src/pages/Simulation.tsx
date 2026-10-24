@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   CartesianGrid,
@@ -36,25 +36,40 @@ const DEFAULTS = {
 export default function Simulation() {
   const { analysisId: routeId } = useParams();
   const navigate = useNavigate();
-  const { analysisId, analysis, load } = useAnalysis();
+  const { analysisId, analysis, loading, error: analysisError, load } = useAnalysis();
   const [params, setParams] = useState(DEFAULTS);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string | null } | null>(null);
   const [presets, setPresets] = useState<ScenarioPreset[]>(() => offlinePresets());
-  const [presetsOffline, setPresetsOffline] = useState(true);
+  const [presetsOffline, setPresetsOffline] = useState(false);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const runGeneration = useRef(0);
 
   useEffect(() => {
-    if (routeId) void load(routeId);
-  }, [routeId, load]);
+    if (routeId && routeId !== analysisId) void load(routeId);
+  }, [routeId, analysisId, load]);
+
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+    setParams(DEFAULTS);
+    setRunning(false);
+    runGeneration.current += 1;
+    return () => { runGeneration.current += 1; };
+  }, [analysisId]);
 
   /**
    * The backend owns which experiments it offers, so ask it rather than
    * hard-coding the list.  The built-in list stays as the offline fallback.
    */
   useEffect(() => {
-    if (!analysisId) return;
+    setPresets(offlinePresets());
+    setPresetsOffline(false);
+    setPresetsLoading(false);
+    if (!analysisId || !analysis || (routeId && routeId !== analysisId)) return;
     let cancelled = false;
+    setPresetsLoading(true);
     api
       .presets(analysisId)
       .then((scenarios) => {
@@ -71,14 +86,18 @@ export default function Simulation() {
         if (cancelled) return;
         setPresets(offlinePresets());
         setPresetsOffline(true);
+      })
+      .finally(() => {
+        if (!cancelled) setPresetsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [analysisId]);
+  }, [analysisId, analysis, routeId]);
 
   const run = async () => {
-    if (!analysisId) return;
+    if (!analysisId || !analysis || running) return;
+    const request = ++runGeneration.current;
     setRunning(true);
     setError(null);
     const scenario: Scenario = {
@@ -89,12 +108,14 @@ export default function Simulation() {
       seed: 20240517,
     };
     try {
-      setResult(await api.simulate(analysisId, scenario));
+      const next = await api.simulate(analysisId, scenario);
+      if (request === runGeneration.current) setResult(next);
     } catch (caught) {
+      if (request !== runGeneration.current) return;
       const apiError = caught as ApiError;
       setError({ message: apiError.message, hint: apiError.hint });
     } finally {
-      setRunning(false);
+      if (request === runGeneration.current) setRunning(false);
     }
   };
 
@@ -111,7 +132,6 @@ export default function Simulation() {
           <Button
             variant="secondary"
             onClick={() => {
-              void load("demo");
               navigate("/simulation/demo");
             }}
           >
@@ -166,6 +186,18 @@ export default function Simulation() {
         )}
       </div>
 
+      {analysisError && (
+        <div className="mb-6">
+          <Notice tone="error" title="The analysis could not be loaded">
+            <p>{analysisError.message}</p>
+            {analysisError.hint && <p className="mt-1">{analysisError.hint}</p>}
+            <Button className="mt-3" onClick={() => void load(routeId ?? analysisId!)}>
+              Retry loading analysis
+            </Button>
+          </Notice>
+        </div>
+      )}
+      {loading && <p role="status" className="mb-6 text-[13px] text-ink-faint">Loading analysis…</p>}
       {error && (
         <div className="mb-6">
           <Notice tone="error" title="The scenario could not run">
@@ -193,6 +225,7 @@ export default function Simulation() {
               disabled={!analysis}
               presets={presets}
               presetsOffline={presetsOffline}
+              presetsLoading={presetsLoading}
             />
           </Section>
 

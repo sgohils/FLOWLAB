@@ -28,6 +28,7 @@ from .api.routes_upload import router as upload_router
 from .api.state import jobs, reconcile_orphans, register_demo
 from .config import PROJECT_DIR, settings
 from .storage import StorageError
+from .storage.postgres import HostedStorageError
 from .vision.detector import DetectorError
 
 logging.basicConfig(
@@ -131,6 +132,12 @@ async def validation_error(request: Request, exc: ValidationError) -> JSONRespon
 @app.exception_handler(StorageError)
 async def storage_error(request: Request, exc: StorageError) -> JSONResponse:
     return _error(400, str(exc))
+
+
+@app.exception_handler(HostedStorageError)
+async def hosted_storage_error(request: Request, exc: HostedStorageError) -> JSONResponse:
+    logger.warning("Hosted storage unavailable on %s: %s", request.url.path, exc)
+    return _error(503, str(exc), exc.hint)
 
 
 @app.exception_handler(DetectorError)

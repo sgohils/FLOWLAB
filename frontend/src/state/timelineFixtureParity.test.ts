@@ -146,7 +146,7 @@ describe("positionAt against the committed fixture", () => {
       expect(
         positionAt(PAYLOAD, 7, time),
         `vehicle 7 at t=${time} is inside the 0.5-1.1 s dropout`,
-      ).toEqual({ x: 0.4125, y: 0.8 });
+      ).toBeNull();
     }
     expectPoint(positionAt(PAYLOAD, 7, 1.1), 0.5, 0.8, "vehicle 7 at t=1.1");
 

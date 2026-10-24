@@ -17,6 +17,7 @@ type Phase = "idle" | "uploading" | "done";
 
 export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
   const input = useRef<HTMLInputElement>(null);
+  const uploading = useRef(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -27,6 +28,13 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
   const maxMb = meta?.max_upload_mb ?? 250;
 
   const submit = async (file: File) => {
+    if (uploading.current) return;
+    const problem = validate(file);
+    if (problem) {
+      setError({ message: problem, hint: null });
+      return;
+    }
+    uploading.current = true;
     setError(null);
     setFileInfo({ name: file.name, size: file.size });
     setPhase("uploading");
@@ -39,6 +47,8 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
       const apiError = caught as ApiError;
       setError({ message: apiError.message, hint: apiError.hint });
       setPhase("idle");
+    } finally {
+      uploading.current = false;
     }
   };
 
@@ -71,11 +81,6 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
             setDragging(false);
             const file = event.dataTransfer.files?.[0];
             if (!file) return;
-            const problem = validate(file);
-            if (problem) {
-              setError({ message: problem, hint: null });
-              return;
-            }
             void submit(file);
           }}
           className={`flex flex-col items-center justify-center rounded-md border border-dashed px-6 py-12 text-center transition-colors ${
@@ -99,12 +104,15 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
             type="file"
             accept={allowed.join(",")}
             className="hidden"
+            aria-label="Traffic video"
+            disabled={phase === "uploading"}
             onChange={(event) => {
               const file = event.target.files?.[0];
+              event.target.value = "";
               if (file) void submit(file);
             }}
           />
-          <Button className="mt-5" onClick={() => input.current?.click()}>
+          <Button className="mt-5" disabled={phase === "uploading"} onClick={() => input.current?.click()}>
             Choose video
           </Button>
           {phase === "uploading" && (
@@ -139,12 +147,11 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
       )}
 
       <p className="text-[11px] leading-relaxed text-ink-faint">
-        Detection runs on this machine with{" "}
-        {meta ? `${meta.model_name} ` : "a local YOLO model "}
+        Detection runs on the backend with{" "}
+        {meta ? `${meta.model_name} ` : "a YOLO model "}
         on vehicle classes only ({meta?.vehicle_classes.join(", ") ?? "car, bus, truck, motorcycle"}).
-        The clip and the annotated copy are stored under the local data folder until
-        you delete the analysis. The model file is downloaded once on first use; after
-        that nothing leaves this machine.
+        {" "}The clip and annotated copy stay in the backend's configured storage until
+        you delete the analysis. Hosted deployments upload footage to private cloud storage.
       </p>
     </div>
   );

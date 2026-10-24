@@ -31,11 +31,10 @@ export default function Analysis() {
     api.meta().then(setMeta).catch(() => setMeta(null));
   }, []);
 
-  // Reload whenever the route changes.  Comparing against the cached id would
-  // keep a stale analysis in memory when the same id is opened twice.
+  // Navigation between views preserves the loaded analysis and active polling.
   useEffect(() => {
-    if (routeId) void load(routeId);
-  }, [routeId, load]);
+    if (routeId && routeId !== analysisId) void load(routeId);
+  }, [routeId, analysisId, load]);
 
   useEffect(() => {
     setRegions(analysis?.regions ?? null);
@@ -65,7 +64,7 @@ export default function Analysis() {
   );
 
   const removeAnalysis = async () => {
-    if (!analysis || !window.confirm("Delete this analysis and all of its local files?")) {
+    if (!analysis || !window.confirm("Delete this analysis and all of its stored files?")) {
       return;
     }
     try {
@@ -136,9 +135,11 @@ export default function Analysis() {
             >
               Print brief
             </Link>
-            <Button variant="ghost" onClick={removeAnalysis} disabled={pending > 0}>
-              Delete
-            </Button>
+            {analysis.source !== "demo" && (
+              <Button variant="ghost" onClick={removeAnalysis} disabled={pending > 0}>
+                Delete
+              </Button>
+            )}
             <Link
               to={`/simulation/${analysis.analysis_id}`}
               aria-disabled={analysis.arrivals.length === 0}
@@ -170,6 +171,7 @@ export default function Analysis() {
           <Notice tone="error" title="Could not complete this request">
             <p>{error.message}</p>
             {error.hint && <p className="mt-1 opacity-85">{error.hint}</p>}
+            <Button className="mt-3" onClick={() => void load(routeId ?? analysisId!)}>Retry</Button>
           </Notice>
         </div>
       )}

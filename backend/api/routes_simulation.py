@@ -25,7 +25,7 @@ class ScenarioRequest(BaseModel):
 @router.post("/analyses/{analysis_id}/simulate", response_model=SimulationResult)
 async def simulate(analysis_id: str, payload: ScenarioRequest) -> SimulationResult:
     """Run one scenario.  The model is deterministic, so results repeat exactly."""
-    analysis = load_analysis(analysis_id)
+    analysis = await asyncio.to_thread(load_analysis, analysis_id)
     if analysis is None:
         raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
     if not analysis.arrivals:
@@ -49,10 +49,10 @@ async def simulate(analysis_id: str, payload: ScenarioRequest) -> SimulationResu
 @router.get("/analyses/{analysis_id}/simulation/presets", response_model=list[Scenario])
 async def presets(analysis_id: str) -> list[Scenario]:
     """Starting points offered by the UI sliders."""
-    analysis = load_analysis(analysis_id)
+    analysis = await asyncio.to_thread(load_analysis, analysis_id)
     baseline = Scenario()
     if analysis is None:
-        return [baseline]
+        raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
     from ..simulation.scenarios import presets as build_presets
 
     return list(build_presets(baseline).values())

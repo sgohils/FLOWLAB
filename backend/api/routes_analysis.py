@@ -100,10 +100,16 @@ class MetaResponse(BaseModel):
     max_upload_mb: int
     max_duration_seconds: float
     stages: list[dict[str, str]]
+    storage_mode: Literal["local", "hosted"]
 
 
 def _require_analysis(analysis_id: str) -> tuple[Analysis, list[Trajectory]]:
     """Load the stored analysis together with the tracks used to measure it."""
+    if analysis_id == DEMO_ID:
+        demo = demo_analysis()
+        if demo is not None:
+            return demo, demo.trajectories
+        raise api_error(503, "The demo dataset is not bundled with this build.")
     payload = read_result(settings, analysis_id)
     if payload:
         try:
@@ -114,10 +120,6 @@ def _require_analysis(analysis_id: str) -> tuple[Analysis, list[Trajectory]]:
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 "The stored result for this analysis could not be read.",
             ) from exc
-    if analysis_id == DEMO_ID:
-        demo = demo_analysis()
-        if demo is not None:
-            return demo, demo.trajectories
     raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
 
 
@@ -135,6 +137,14 @@ async def health() -> Health:
     second /api/health the UI fires on a Home mount, which is what made the stall
     visible.
     """
+    if settings.hosted:
+        # Detection belongs to the queue worker, not the API instance. A
+        # liveness probe must not download/import the model on every cold start.
+        return Health(
+            status="ok", model_loaded=False, device=settings.device,
+            model_name=settings.model_name, processing_mode="queue",
+            message="Video processing runs in the queue worker.",
+        )
     from ..vision.detector import detector
 
     message: str | None = None
@@ -166,7 +176,7 @@ async def ready(response: Response) -> Health:
     failing probe says *why* in the log instead of only that it failed.
     """
     body = await health()
-    if not body.model_loaded:
+    if body.processing_mode != "queue" and not body.model_loaded:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return body
 
@@ -184,12 +194,13 @@ async def meta() -> MetaResponse:
         max_upload_mb=settings.max_upload_bytes // (1024 * 1024),
         max_duration_seconds=settings.max_duration_seconds,
         stages=[{"key": key, "label": label} for key, label, _, _ in STAGE_DEFINITIONS],
+        storage_mode="hosted" if settings.hosted else "local",
     )
 
 
 @router.get("/analyses", response_model=list[AnalysisListItem])
-async def list_analyses(limit: int = Query(default=25, ge=1, le=100)) -> list[AnalysisListItem]:
-    register_demo()
+def list_analyses(limit: int = Query(default=25, ge=1, le=100)) -> list[AnalysisListItem]:
+    demo = register_demo()
     items: list[AnalysisListItem] = []
     for record in database.list_recent(limit=limit):
         summary = record.get("summary") or {}
@@ -207,7 +218,18 @@ async def list_analyses(limit: int = Query(default=25, ge=1, le=100)) -> list[An
                 throughput_per_minute=summary.get("throughput_per_minute"),
             )
         )
-    return items
+    if settings.hosted and demo is not None and not any(
+        item.analysis_id == DEMO_ID for item in items
+    ):
+        items.append(AnalysisListItem(
+            analysis_id=DEMO_ID, filename=demo.video.filename, source="demo",
+            status="complete", created_at=demo.created_at, duration=demo.video.duration,
+            vehicles_tracked=demo.summary.vehicles_tracked,
+            peak_queue=demo.summary.peak_queue,
+            throughput_per_minute=demo.summary.throughput_per_minute,
+        ))
+        items.sort(key=lambda item: item.created_at, reverse=True)
+    return items[:limit]
 
 
 @router.get("/demo", response_model=Analysis)
@@ -223,7 +245,14 @@ async def demo() -> Analysis:
 
 
 @router.get("/analyses/{analysis_id}/status", response_model=JobStatus)
-async def analysis_status(analysis_id: str) -> JobStatus:
+def analysis_status(analysis_id: str) -> JobStatus:
+    if analysis_id == DEMO_ID:
+        analysis, _ = _require_analysis(analysis_id)
+        return JobStatus(
+            analysis_id=DEMO_ID, status="complete", stage="results", progress=1.0,
+            stages=[], video=analysis.video,
+            created_at=analysis.created_at, updated_at=analysis.created_at,
+        )
     job = jobs.get(analysis_id)
     if job is not None:
         return job
@@ -253,7 +282,7 @@ async def analysis_status(analysis_id: str) -> JobStatus:
 
 
 @router.get("/analyses/{analysis_id}/result", response_model=Analysis)
-async def analysis_result(
+def analysis_result(
     analysis_id: str,
     trajectory_points: TrajectoryPoints = DEFAULT_TRAJECTORY_POINTS,
 ) -> Analysis:
@@ -317,7 +346,7 @@ async def update_regions(
 
 
 @router.get("/analyses/{analysis_id}/video/annotated", response_class=FileResponse)
-async def annotated_video(analysis_id: str) -> FileResponse:
+def annotated_video(analysis_id: str) -> FileResponse:
     path = annotated_file(analysis_id)
     if path is None:
         raise api_error(
@@ -331,7 +360,7 @@ async def annotated_video(analysis_id: str) -> FileResponse:
 
 
 @router.get("/analyses/{analysis_id}/video/source", response_class=FileResponse)
-async def original_video(analysis_id: str) -> FileResponse:
+def original_video(analysis_id: str) -> FileResponse:
     path = source_file(analysis_id)
     if path is None:
         raise api_error(status.HTTP_404_NOT_FOUND, "The source video is no longer on disk.")
@@ -342,7 +371,7 @@ async def original_video(analysis_id: str) -> FileResponse:
 
 
 @router.get("/analyses/{analysis_id}/timeline")
-async def analysis_timeline(
+def analysis_timeline(
     analysis_id: str,
     hz: float = Query(
         default=4.0,
@@ -363,7 +392,7 @@ async def analysis_timeline(
 
 
 @router.delete("/analyses/{analysis_id}", response_model=DeleteResult)
-async def delete_analysis(analysis_id: str) -> DeleteResult:
+def delete_analysis(analysis_id: str) -> DeleteResult:
     """Delete the record **and its files**: upload, annotated video, results.
 
     A delete that left the uploaded footage on disk would be a false promise,
@@ -407,7 +436,7 @@ def _download(bundle: ExportBundle) -> Response:
 
 
 @router.get("/analyses/{analysis_id}/export/summary.json")
-async def export_summary(
+def export_summary(
     analysis_id: str,
     include_points: bool = Query(
         default=False, description="Include raw trajectory samples (larger file)."
@@ -419,28 +448,28 @@ async def export_summary(
 
 
 @router.get("/analyses/{analysis_id}/export/vehicles.csv")
-async def export_vehicles(analysis_id: str) -> Response:
+def export_vehicles(analysis_id: str) -> Response:
     """Per-vehicle durations and queue times."""
     analysis, _ = _require_analysis(analysis_id)
     return _download(build_trajectories_csv(analysis))
 
 
 @router.get("/analyses/{analysis_id}/export/queue.csv")
-async def export_queue(analysis_id: str) -> Response:
+def export_queue(analysis_id: str) -> Response:
     """The queue length series."""
     analysis, _ = _require_analysis(analysis_id)
     return _download(build_queue_csv(analysis))
 
 
 @router.get("/analyses/{analysis_id}/export/events.csv")
-async def export_events(analysis_id: str) -> Response:
+def export_events(analysis_id: str) -> Response:
     """Events, bottleneck evidence and stopped intervals."""
     analysis, _ = _require_analysis(analysis_id)
     return _download(build_events_csv(analysis))
 
 
 @router.get("/analyses/{analysis_id}/export/measurements")
-async def export_measurements(analysis_id: str) -> dict:
+def export_measurements(analysis_id: str) -> dict:
     """The headline numbers with units and definitions, as JSON."""
     analysis, _ = _require_analysis(analysis_id)
     return measurements_payload(analysis)

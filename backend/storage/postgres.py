@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS upload_intents (
 """
 
 
+class HostedStorageError(Exception):
+    """An actionable storage failure safe to return without connection secrets."""
+
+    def __init__(self, message: str, hint: str) -> None:
+        super().__init__(message)
+        self.hint = hint
+
+
 class _Connection:
     """Translate this repository's positional parameters to psycopg syntax."""
 
@@ -57,16 +65,41 @@ class PostgresDatabase(Database):
         from psycopg.rows import dict_row
 
         if not self.url:
-            raise RuntimeError("Hosted mode requires DATABASE_URL for PostgreSQL.")
-        return psycopg.connect(
-            self.url, row_factory=dict_row, autocommit=autocommit,
-            connect_timeout=10, prepare_threshold=None,
-        )
+            raise HostedStorageError(
+                "Saved analyses are unavailable because PostgreSQL is not configured.",
+                "Set DATABASE_URL in the Vercel project, run the database migration, "
+                "and redeploy. The bundled demo still works.",
+            )
+        try:
+            return psycopg.connect(
+                self.url, row_factory=dict_row, autocommit=autocommit,
+                connect_timeout=10, prepare_threshold=None,
+            )
+        except (psycopg.OperationalError, psycopg.ProgrammingError) as exc:
+            raise HostedStorageError(
+                "The analysis database is unavailable.",
+                "Check the PostgreSQL connection and DATABASE_URL in Vercel. "
+                "The bundled demo still works.",
+            ) from exc
 
     @contextmanager
     def _connect(self) -> Iterator[Any]:
-        with self.connect() as connection:
-            yield _Connection(connection)
+        import psycopg
+
+        try:
+            with self.connect() as connection:
+                yield _Connection(connection)
+        except psycopg.errors.UndefinedTable as exc:
+            raise HostedStorageError(
+                "The analysis database has not been initialized.",
+                "Run python -m backend.scripts.migrate_hosted with DATABASE_URL set, "
+                "then retry. The bundled demo still works.",
+            ) from exc
+        except (psycopg.OperationalError, psycopg.InterfaceError) as exc:
+            raise HostedStorageError(
+                "The analysis database connection was interrupted.",
+                "Retry shortly, or check the PostgreSQL connection in Vercel.",
+            ) from exc
 
     def migrate(self) -> None:
         with self.connect() as connection:

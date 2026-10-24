@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import secrets
 import time
 from pathlib import Path
@@ -53,6 +54,19 @@ def _intent(proof: UploadProof, *, allow_expired: bool = False) -> dict:
 
 @router.get("/config")
 async def upload_config() -> dict:
+    if settings.hosted:
+        missing = [
+            name for name, value in (
+                ("DATABASE_URL", settings.database_url),
+                ("BLOB_READ_WRITE_TOKEN", os.getenv("BLOB_READ_WRITE_TOKEN")),
+            ) if not value
+        ]
+        if missing:
+            raise api_error(
+                503, "Video uploads are not configured for this deployment.",
+                hint=f"Configure {', '.join(missing)} in Vercel and redeploy. "
+                "The bundled demo still works.",
+            )
     return {"mode": "blob" if settings.hosted else "local"}
 
 

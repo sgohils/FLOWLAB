@@ -9,8 +9,8 @@ interface AnalysisContextValue {
   job: JobStatus | null;
   loading: boolean;
   error: { message: string; hint: string | null } | null;
-  load: (id: string) => Promise<void>;
-  openDemo: () => Promise<void>;
+  load: (id: string) => Promise<boolean>;
+  openDemo: () => Promise<boolean>;
   replaceAnalysis: (analysis: Analysis) => void;
   clear: () => void;
 }
@@ -27,6 +27,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string | null } | null>(null);
   const timer = useRef<number | null>(null);
+  const generation = useRef(0);
 
   const stopPolling = useCallback(() => {
     if (timer.current !== null) {
@@ -35,54 +36,64 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => stopPolling, [stopPolling]);
+  useEffect(() => () => {
+    generation.current += 1;
+    stopPolling();
+  }, [stopPolling]);
 
   const load = useCallback(
     async (id: string) => {
       stopPolling();
+      const request = ++generation.current;
+      const current = () => request === generation.current;
       setAnalysisId(id);
       setLoading(true);
       setError(null);
       setAnalysis(null);
       setJob(null);
 
-      const poll = async () => {
+      const poll = async (): Promise<boolean> => {
         try {
           if (id === "demo") {
-            setAnalysis(await api.demo());
+            const result = await api.demo();
+            if (!current()) return false;
+            setAnalysis(result);
             setLoading(false);
-            return;
+            return true;
           }
           const status = await api.status(id);
+          if (!current()) return false;
           setJob(status);
           if (status.status === "complete") {
-            setAnalysis(await api.result(id));
+            const result = await api.result(id);
+            if (!current()) return false;
+            setAnalysis(result);
             setLoading(false);
-            return;
+            return true;
           }
           if (status.status === "error") {
             setError({ message: status.error ?? "Processing failed.", hint: status.hint });
             setLoading(false);
-            return;
+            return false;
           }
-          timer.current = window.setTimeout(poll, POLL_INTERVAL_MS);
+          timer.current = window.setTimeout(() => void poll(), POLL_INTERVAL_MS);
+          return true;
         } catch (caught) {
-          const apiError = caught as ApiError;
+          if (!current()) return false;
           setError({
-            message: apiError.message ?? "Could not load this analysis.",
-            hint: apiError.hint ?? null,
+            message: caught instanceof Error ? caught.message : "Could not load this analysis.",
+            hint: caught instanceof ApiError ? caught.hint : null,
           });
           setLoading(false);
+          return false;
         }
       };
-      await poll();
+      return poll();
     },
     [stopPolling],
   );
 
-  const openDemo = useCallback(async () => {
-    await load("demo");
-  }, [load]);
+  const openDemo = useCallback(() => load("demo"), [load]);
 
   const replaceAnalysis = useCallback((next: Analysis) => {
     setAnalysis(next);
@@ -90,6 +101,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clear = useCallback(() => {
+    generation.current += 1;
     stopPolling();
     setAnalysisId(null);
     setAnalysis(null);
