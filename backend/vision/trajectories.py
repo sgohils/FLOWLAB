@@ -18,7 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from math import hypot
 
-from ..config import Settings, settings as default_settings
+from ..config import Settings
+from ..config import settings as default_settings
 from ..models.schemas import Trajectory, TrajectoryPoint
 from .detector import RawDetection
 
@@ -56,7 +57,8 @@ class TrackAccumulator:
             if buffer is None:
                 buffer = _Buffer(vehicle_id=detection.track_id, class_name=detection.class_name)
                 self._tracks[detection.track_id] = buffer
-            buffer.class_counts[detection.class_name] = buffer.class_counts.get(detection.class_name, 0) + 1
+            name = detection.class_name
+            buffer.class_counts[name] = buffer.class_counts.get(name, 0) + 1
             x, y = self._smooth(buffer, detection.contact)
             speed = 0.0
             if buffer.points:

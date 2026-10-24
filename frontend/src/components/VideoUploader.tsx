@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { ApiError, api } from "../api/client";
 import type { Meta, UploadResponse } from "../types";
+import {
+  formatBytes,
+  formatPercent,
+  formatWithUnit,
+} from "../utils/format";
 import { Button, Notice, Panel } from "./Primitives";
 
 interface VideoUploaderProps {
@@ -43,7 +48,11 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
       return `“${extension}” is not a supported format. Use ${allowed.join(", ")}.`;
     }
     if (file.size > maxMb * 1024 * 1024) {
-      return `That file is ${(file.size / 1e6).toFixed(0)} MB; the limit is ${maxMb} MB.`;
+      return `That file is ${formatBytes(file.size)}; the limit is ${formatWithUnit(
+        maxMb,
+        "MB",
+        0,
+      )}.`;
     }
     return null;
   };
@@ -79,7 +88,10 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
           </p>
           <p className="mt-3 text-[11px] text-ink-faint">
             {allowed.join(" · ")} — up to {maxMb} MB,{" "}
-            {meta ? `${Math.round(meta.max_duration_seconds / 60)} min` : "15 min"} maximum.
+            {meta
+              ? formatWithUnit(meta.max_duration_seconds / 60, "min", 0)
+              : "15 min"}{" "}
+            maximum.
             Fixed camera footage works best.
           </p>
           <input
@@ -99,9 +111,16 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
             <div className="mt-5 w-full max-w-sm">
               <div className="mb-1 flex justify-between text-[11px] text-ink-faint">
                 <span className="truncate">{fileInfo?.name}</span>
-                <span className="font-mono">{Math.round(progress * 100)}%</span>
+                <span className="font-mono">{formatPercent(progress, 0)}</span>
               </div>
-              <div className="h-1 w-full overflow-hidden rounded bg-rule-soft">
+              <div
+                className="h-1 w-full overflow-hidden rounded bg-rule-soft"
+                role="progressbar"
+                aria-label="Upload progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(progress * 100)}
+              >
                 <div
                   className="h-full bg-accent transition-[width] duration-200"
                   style={{ width: `${Math.max(3, progress * 100)}%` }}

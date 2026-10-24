@@ -7,10 +7,12 @@ database small enough to open in any SQLite browser during a demo.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -53,11 +55,25 @@ class Database:
         with self._connect() as connection:
             connection.executescript(_SCHEMA)
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open one connection, yield it, and always close it.
+
+        ``sqlite3.Connection.__exit__`` ends the transaction; it does not close
+        the connection.  Handing a bare connection to ``with self._connect() as
+        connection:`` therefore committed the write and leaked the handle, and
+        the descriptor was only reclaimed when the cyclic collector ran.  The
+        ``with connection:`` below keeps the commit-on-success / rollback-on-
+        error behaviour, and the ``finally`` owns the handle.
+        """
         connection = sqlite3.connect(self._path, timeout=15.0)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     # -- writes ------------------------------------------------------------
 

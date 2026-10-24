@@ -66,14 +66,39 @@ def _load_analysis(reference: dict, clip: Path | None) -> tuple[Analysis, float]
     )
 
 
+#: What each compared series counts, quoted in the report so a reader cannot
+#: mistake one of the two queue numbers for the other.
+OCCUPANCY_DEFINITION = "region occupancy (vehicles inside the polygon, any speed)"
+QUEUED_DEFINITION = (
+    "queued (inside polygon AND below speed threshold for >= min_queue_seconds)"
+)
+#: The fallback reference series.  Which rule ``queue_counts`` follows cannot be
+#: told from the file alone: the generator applies its slow rule to it, while
+#: ``backend/validation/README.md`` documents the same key as a hand-taken
+#: occupancy count.  The label therefore names the key, not a rule the script
+#: cannot verify.
+UNTYPED_REFERENCE_DEFINITION = (
+    "the reference's queue_counts (rule not declared by the file)"
+)
+
+
 def compare_queue_series(
-    computed: list[dict], reference: list[dict], tolerance_s: float = 0.5
+    computed: list[dict],
+    reference: list[dict],
+    tolerance_s: float = 0.5,
+    *,
+    compares_against: str = "",
 ) -> dict[str, Any]:
-    """Compare the queue length at matching instants.
+    """Compare a queue length series against a reference at matching instants.
 
     Reference files written by a person use ``time_s``/``count``; the generator
     writes ``time_s``/``count`` too.  ``time``/``queue`` is accepted as well so
     a computed series can be fed back in.
+
+    ``compares_against`` names the pair that is being compared - which series on
+    each side, and the rule behind it - and is returned verbatim, because a
+    difference against a paused-frame count and a difference against the
+    slow-and-held count mean different things.
     """
     by_time = {
         round(item.get("time_s", item.get("time", 0.0)), 2): item.get(
@@ -98,12 +123,62 @@ def compare_queue_series(
         if difference == 0:
             exact += 1
     return {
+        "compares_against": compares_against,
         "reference_points": len(reference),
         "matched_points": matched,
         "mean_absolute_error": round(statistics.fmean(errors), 3) if errors else None,
         "max_absolute_error": max(errors) if errors else None,
         "exact_match_rate": round(exact / matched, 4) if matched else None,
     }
+
+
+def _primary_queue_comparison(
+    reference: dict, analysis: Analysis
+) -> dict[str, Any] | None:
+    """The most like-for-like queue comparison available, and what it compares.
+
+    The reference series and the computed series are chosen independently, and
+    whichever pair is actually used is named in ``compares_against``.  A
+    residual against an occupancy reference is a real measurement difference,
+    while one against a reference whose rule the file does not declare may be
+    nothing more than the speed-and-hold definition gap, so the two are never
+    compared silently.
+    """
+    occupancy_reference = reference.get("occupancy_counts")
+    slow_reference = reference.get("queue_counts")
+    if not occupancy_reference and not slow_reference:
+        return None
+    queued = [{"time": s.time, "queue": s.queue} for s in analysis.queue_timeseries]
+    occupancy = [
+        {"time": s.time, "queue": s.queue} for s in analysis.region_occupancy_timeseries
+    ]
+
+    if occupancy_reference and occupancy:
+        return compare_queue_series(
+            occupancy, occupancy_reference, compares_against=OCCUPANCY_DEFINITION
+        )
+    if occupancy_reference:
+        # A result stored before the occupancy series existed: the queued series
+        # has to stand in, and the label says the pair is not like for like.
+        return compare_queue_series(
+            queued,
+            occupancy_reference,
+            compares_against=f"{QUEUED_DEFINITION} against {OCCUPANCY_DEFINITION} - "
+            "this stored result has no occupancy series",
+        )
+    if not slow_reference:
+        return None
+    if not occupancy:
+        return compare_queue_series(
+            queued, slow_reference, compares_against=QUEUED_DEFINITION
+        )
+    # A reference file written before the generator emitted occupancy counts.
+    return compare_queue_series(
+        occupancy,
+        slow_reference,
+        compares_against=f"{OCCUPANCY_DEFINITION} against "
+        f"{UNTYPED_REFERENCE_DEFINITION} - this reference file has no occupancy_counts",
+    )
 
 
 def compare_counts(computed: list[float], reference: list[float], window: float) -> dict:
@@ -203,13 +278,19 @@ def build_report(reference: dict, analysis: Analysis, seconds: float, clip: Path
         },
     }
 
-    truth = reference.get("queue_counts")
-    if truth:
-        result["queue_series"] = compare_queue_series(
-            [{"time": s.time, "queue": s.queue} for s in analysis.queue_timeseries], truth
+    primary = _primary_queue_comparison(reference, analysis)
+    if primary:
+        result["queue_series"] = primary
+    slow_reference = reference.get("queue_counts")
+    if slow_reference:
+        queued = [{"time": s.time, "queue": s.queue} for s in analysis.queue_timeseries]
+        result["queue_length_app_definition"] = compare_queue_series(
+            queued, slow_reference, compares_against=QUEUED_DEFINITION
         )
     if reference.get("departures_s") is not None:
-        result["exit_crossings"] = compare_counts(analysis.departures, reference["departures_s"], window)
+        result["exit_crossings"] = compare_counts(
+            analysis.departures, reference["departures_s"], window
+        )
     if reference.get("arrivals_s") is not None:
         result["arrivals"] = compare_counts(analysis.arrivals, reference["arrivals_s"], window)
     if reference.get("queue_visits"):
@@ -218,6 +299,19 @@ def build_report(reference: dict, analysis: Analysis, seconds: float, clip: Path
         )
     result["reference_notes"] = reference.get("notes", "")
     return result
+
+
+def _agreement_lines(block: dict[str, Any]) -> list[str]:
+    """The shared agreement figures, rendered for one compared series."""
+    exact = block["exact_match_rate"]
+    rate = "n/a (no instant matched)" if exact is None else f"{exact * 100:.1f}%"
+    return [
+        f"- reference points: **{block['reference_points']}**, "
+        f"matched: **{block['matched_points']}**",
+        f"- mean absolute error: **{block['mean_absolute_error']} vehicles**",
+        f"- maximum absolute error: **{block['max_absolute_error']} vehicles**",
+        f"- exact agreement: **{rate}** of matched instants",
+    ]
 
 
 def render_markdown(report: dict) -> str:
@@ -241,7 +335,8 @@ def render_markdown(report: dict) -> str:
         f"| Speed threshold | {clip['speed_threshold']} frame widths/s |",
         f"| Minimum queue time | {clip['min_queue_seconds']} s |",
         f"| Processing time | {report['environment']['processing_seconds']} s |",
-        f"| Platform | {report['environment']['platform']}, Python {report['environment']['python']} |",
+        f"| Platform | {report['environment']['platform']}, "
+        f"Python {report['environment']['python']} |",
         "",
         "## Computed results",
         "",
@@ -251,16 +346,33 @@ def render_markdown(report: dict) -> str:
     for key, value in report["computed"].items():
         lines.append(f"| {key.replace('_', ' ')} | {value} |")
 
-    series = report.get("queue_series")
-    if series:
+    primary = report.get("queue_series")
+    if primary:
         lines += [
             "",
-            "## Queue length agreement",
+            "## Queue length against your counts",
             "",
-            f"- reference points: **{series['reference_points']}**, matched: **{series['matched_points']}**",
-            f"- mean absolute error: **{series['mean_absolute_error']} vehicles**",
-            f"- maximum absolute error: **{series['max_absolute_error']} vehicles**",
-            f"- exact agreement: **{series['exact_match_rate'] * 100:.1f}%** of matched instants",
+            f"compared against: **{primary['compares_against']}**",
+            "",
+            *_agreement_lines(primary),
+            "",
+            "Matching aggregate counts do **not** prove that individual vehicles "
+            "were detected and tracked correctly: a missed vehicle and a "
+            "duplicate id cancel out in a total.",
+        ]
+    queued = report.get("queue_length_app_definition")
+    if queued:
+        lines += [
+            "",
+            "## Queue length, application definition (reported separately)",
+            "",
+            f"compared against: **{queued['compares_against']}**",
+            "",
+            *_agreement_lines(queued),
+            "",
+            "This block is **not** a like-for-like comparison with a human "
+            "count. It shows how much of the difference above is the "
+            "speed-and-hold rule rather than the detector.",
         ]
     for key, title in (
         ("exit_crossings", "Exit crossings"),
@@ -284,7 +396,8 @@ def render_markdown(report: dict) -> str:
             "",
             "## Queue visits",
             "",
-            f"- matched **{visits['matched']}** of **{visits['reference_visits']}** reference visits",
+            f"- matched **{visits['matched']}** of "
+            f"**{visits['reference_visits']}** reference visits",
             f"- mean absolute duration error **{visits['mean_absolute_duration_error_s']} s**",
             f"- maximum absolute duration error **{visits['max_absolute_duration_error_s']} s**",
         ]

@@ -1,46 +1,96 @@
 # FLOWLAB - local stack.
 #
-#   docker compose up --build
+#   docker compose up --build              one app on http://localhost:8000
+#   docker compose --profile dev up        + the Vite dev server on :5173
 #
-# API      -> http://localhost:8000   (docs at /docs)
-# Frontend -> http://localhost:5173
-
+# The default `up` starts ONE service.  The backend image builds the production
+# frontend bundle and serves it from the same origin, so there is no second
+# process to keep in sync and no CORS question to answer.  The Vite dev server
+# is what you want while editing React, and it is opt-in behind the "dev"
+# profile precisely so it cannot start by accident.
 services:
   backend:
     build:
+      # Repository root: backend/Dockerfile builds frontend/ in a first stage and
+      # copies both trees into the runtime image.
       context: .
       dockerfile: backend/Dockerfile
+    image: flowlab-backend:latest
     ports:
-      - "8000:8000"
+      # Loopback only.  The API has no authentication, so a published port on
+      # 0.0.0.0 hands every uploaded vehicle on this machine to the network.
+      - "127.0.0.1:8000:8000"
     environment:
       FLOWLAB_DATA_DIR: /data
       # Set to "0" to use an NVIDIA GPU with the NVIDIA container runtime.
       FLOWLAB_DEVICE: ${FLOWLAB_DEVICE:-auto}
       FLOWLAB_SAMPLE_FPS: ${FLOWLAB_SAMPLE_FPS:-10}
+      # The SPA is served from the same origin, so the default stack has no
+      # cross-origin caller and this list is never consulted there.  It is set on
+      # *this* service - the only process that reads FLOWLAB_CORS_ORIGINS - purely
+      # for `docker compose --profile dev up`, where the Vite dev server is a second
+      # origin and the browser has to be allowed to call the API.  The value below
+      # is exactly backend/config.py's DEFAULT_CORS_ORIGINS, so the default stack
+      # gets the safe default either way.
+      #
+      # backend/config.py validates every entry and refuses to start on anything
+      # that is not an http(s) loopback origin, so overriding this from the host
+      # environment with a routable host (or `*`) stops the container with a clear
+      # message instead of quietly opening an unauthenticated API to the network.
+      FLOWLAB_CORS_ORIGINS: ${FLOWLAB_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}
     volumes:
       - flowlab-data:/data
       # Optional: point at a local checkpoint instead of downloading one.
       # - ./models:/models:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      # /api/ready, not /api/health: health answers 200 even when the weights
+      # failed to load (the browser banner needs to read why), which made this
+      # check call a container with no working detector "healthy" - and the dev
+      # server below is gated on exactly that.  urlopen raises on 503, so the
+      # probe exits non-zero and `docker compose ps` tells the truth.
+      #
+      # This restates the Dockerfile's HEALTHCHECK rather than overriding it:
+      # both probe /api/ready with the same interval, timeout and 120s start
+      # period, so a plain `docker run` and `docker compose up` reach the same
+      # verdict about when the image is usable.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready').read()"]
       interval: 15s
       timeout: 10s
+      # The first call is slow: it imports torch and loads the YOLO checkpoint
+      # (~6 MB, downloaded on first run).  Failures inside start_period do not
+      # count as retries, so a cold start is "starting", not "unhealthy".
+      start_period: 120s
       retries: 5
+    restart: unless-stopped
 
+  # The Vite dev server.  Opt in with `docker compose --profile dev up`.
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ""
+    image: flowlab-frontend:dev
+    profiles: ["dev"]
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
+    # No environment block: nothing in a Vite dev server reads the backend's
+    # settings.  FLOWLAB_CORS_ORIGINS used to be set here as well as on the
+    # backend, where it was read by nobody - the browser allow-list is a
+    # property of the API, and it is set on the backend service above.
     depends_on:
-      - backend
+      backend:
+        # True readiness now, not just a listening socket: the dev server is
+        # useless against a backend that cannot load the model, and the health
+        # check above is what makes that visible.
+        condition: service_healthy
     volumes:
+      # Source is bind-mounted for hot reload; the rest of the image (including
+      # node_modules) stays where npm put it.
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
     command: npm run dev -- --host 0.0.0.0
+    restart: unless-stopped
 
 volumes:
   flowlab-data:

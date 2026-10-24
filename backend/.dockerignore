@@ -1,0 +1,51 @@
+# Docker build context exclusions for a ./backend build context.
+#
+# THIS FILE IS STILL INERT for the compose stack, and it always was: Docker
+# reads exactly one ignore file, `<context root>/.dockerignore`, and
+# docker-compose.yml builds the backend with `context: .` (the repository root)
+# because backend/Dockerfile needs backend/ AND frontend/ in the same context.
+#
+# The exclusions that actually apply to `docker compose build backend` live in
+# the ROOT .dockerignore.  Keep this file for the day the backend context
+# becomes ./backend (a backend-only image that drops the SPA); it is written
+# for that layout and would be applied verbatim at that point.
+.git
+.gitignore
+.github
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+coverage.xml
+htmlcov
+*.egg-info
+.idea
+.vscode
+node_modules
+# tests and operator scripts are not needed to serve the API
+backend/tests
+backend/scripts
+backend/validation
+backend/.dockerignore
+backend/Dockerfile
+# local uploads, annotated videos and the SQLite database stay on the host
+data
+# the YOLO checkpoint is downloaded on first use, not baked in
+*.pt
+frontend
+docs
+*.md
+!README.md
+run.bat
+run.sh
+docker-compose.yml
+pyproject.toml
+.pre-commit-config.yaml
+.editorconfig
+CONTRIBUTING.md

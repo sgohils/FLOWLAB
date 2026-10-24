@@ -30,7 +30,10 @@ def test_point_on_boundary_counts_as_inside():
 
 def test_point_in_concave_polygon():
     # A "C" shape opening to the right.
-    shape = [(0.1, 0.1), (0.6, 0.1), (0.6, 0.35), (0.3, 0.35), (0.3, 0.65), (0.6, 0.65), (0.6, 0.9), (0.1, 0.9)]
+    shape = [
+        (0.1, 0.1), (0.6, 0.1), (0.6, 0.35), (0.3, 0.35),
+        (0.3, 0.65), (0.6, 0.65), (0.6, 0.9), (0.1, 0.9),
+    ]
     assert point_in_polygon((0.2, 0.5), shape)
     assert not point_in_polygon((0.45, 0.5), shape)  # inside the notch
 

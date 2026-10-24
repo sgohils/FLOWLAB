@@ -23,12 +23,13 @@ replay curve cannot disagree with the reported peak queue.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from itertools import pairwise
 from math import floor
 from typing import Any
 
 import numpy as np
 
-from ..models.schemas import Trajectory
+from ..models.schemas import Regions, Trajectory
 from .queue_detection import build_queue_series, max_track_gap
 
 #: Default transport resolution for the replay, in samples per second.
@@ -40,7 +41,7 @@ MAX_VEHICLES = 400
 
 
 def _segments_for(
-    points: Sequence, step: float, max_gap: float
+    points: Sequence, max_gap: float
 ) -> list[tuple[list[float], list[float], list[float]]]:
     """Split one track into (times, xs, ys) segments at tracking gaps."""
     if not points:
@@ -49,7 +50,7 @@ def _segments_for(
     xs: list[float] = [points[0].x]
     ys: list[float] = [points[0].y]
     segments: list[tuple[list[float], list[float], list[float]]] = []
-    for previous, current in zip(points, points[1:]):
+    for previous, current in pairwise(points):
         gap = current.time - previous.time
         if gap <= 0 or gap > max_gap:
             # The track was lost: close this segment and start a new one.
@@ -75,7 +76,7 @@ def _resample_segment(
     if len(times) < 2:
         return [round(t, 3) for t in times], [round(x, 5) for x in xs], [round(y, 5) for y in ys]
     start, end = times[0], times[-1]
-    count = max(1, int(floor((end - start) / step + 1e-9)) + 1)
+    count = max(1, floor((end - start) / step + 1e-9) + 1)
     out_t: list[float] = []
     out_x: list[float] = []
     out_y: list[float] = []
@@ -107,7 +108,7 @@ def _resample_segment(
 
 def build_timeline(
     tracks: Sequence[Trajectory],
-    regions,
+    regions: Regions,
     duration: float,
     hz: float = DEFAULT_HZ,
 ) -> dict[str, Any]:
@@ -117,7 +118,7 @@ def build_timeline(
     not the thinned copies sent to the map.
     """
     hz = max(MIN_HZ, min(MAX_HZ, hz))
-    sample_fps = max(1e-6, float(getattr(regions, "sample_fps", 10.0)))
+    sample_fps = max(1e-6, float(regions.sample_fps))
     step = 1.0 / hz
     max_gap = max_track_gap(1.0 / sample_fps)
 
@@ -141,7 +142,7 @@ def build_timeline(
     total_gaps = 0
     for track in ordered:
         segments = []
-        for times, xs, ys in _segments_for(track.points, step, max_gap):
+        for times, xs, ys in _segments_for(track.points, max_gap):
             if not times:
                 continue
             resampled_t, resampled_x, resampled_y = _resample_segment(times, xs, ys, step)
@@ -174,60 +175,3 @@ def build_timeline(
             "motion is drawn and no vehicle is shown there."
         ),
     }
-
-
-def timeline_sample_count(timeline: dict[str, Any]) -> int:
-    """Total points in the payload (used by the tests and the print brief)."""
-    return sum(
-        len(segment["t"]) for vehicle in timeline["vehicles"] for segment in vehicle["segments"]
-    )
-
-
-def queue_at(timeline: dict[str, Any], moment: float) -> int | None:
-    """Queue length at an instant, or ``None`` when the clip has not started."""
-    samples: list[dict[str, Any]] = timeline["queue"]
-    if not samples or moment < samples[0]["t"]:
-        return None
-    best = min(samples, key=lambda sample: abs(sample["t"] - moment))
-    return int(best["q"])
-
-
-def position_at(
-    timeline: dict[str, Any], vehicle_id: int, moment: float
-) -> tuple[float, float] | None:
-    """Position of a vehicle, or ``None`` when it is unknown at that instant.
-
-    ``None`` is returned inside a tracking gap on purpose: the caller must hide
-    the vehicle rather than draw it somewhere invented.
-    """
-    for vehicle in timeline["vehicles"]:
-        if vehicle["id"] != vehicle_id:
-            continue
-        for segment in vehicle["segments"]:
-            times = segment["t"]
-            if not times:
-                continue
-            if times[0] <= moment <= times[-1]:
-                index = _bracket(times, moment)
-                xs, ys = segment["x"], segment["y"]
-                if index + 1 < len(times):
-                    span = times[index + 1] - times[index]
-                    fraction = 0.0 if span <= 0 else (moment - times[index]) / span
-                    return (
-                        xs[index] + fraction * (xs[index + 1] - xs[index]),
-                        ys[index] + fraction * (ys[index + 1] - ys[index]),
-                    )
-                return (xs[index], ys[index])
-        return None
-    return None
-
-
-def _bracket(times: Sequence[float], moment: float) -> int:
-    low, high = 0, len(times) - 1
-    while low < high - 1:
-        middle = (low + high) // 2
-        if times[middle] <= moment:
-            low = middle
-        else:
-            high = middle
-    return low

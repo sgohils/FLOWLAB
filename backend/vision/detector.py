@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
-from ..config import Settings, settings as default_settings
+from ..config import Settings
+from ..config import settings as default_settings
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,7 @@ class VehicleDetector:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or default_settings
-        self._model = None
+        self._model: Any = None
         self._names: dict[int, str] = {}
         self._lock = threading.Lock()
         self._loaded = False
@@ -122,12 +124,14 @@ class VehicleDetector:
             logger.info("Loaded YOLO model %s on %s", self._settings.model_name, self._device)
 
     def class_name(self, class_id: int) -> str:
-        if class_id in self._names:
-            return str(self._names[class_id])
-        try:
-            return self._model.names[class_id]  # type: ignore[union-attr]
-        except Exception:
-            return "vehicle"
+        """Name of a COCO class id, or ``"vehicle"`` if the model does not know it.
+
+        ``_names`` is filled from the loaded model's own ``names`` mapping in
+        :meth:`load`, so it is the single source: a second lookup into the model
+        object could only ever return the same value.
+        """
+        name = self._names.get(class_id)
+        return str(name) if name is not None else "vehicle"
 
     # -- inference ---------------------------------------------------------
 
@@ -148,11 +152,11 @@ class VehicleDetector:
             crop_width, crop_height = frame.shape[1], frame.shape[0]
         else:
             x0, y0, x1, y1 = roi
-            crop_width = max(1, int(round((x1 - x0) * frame.shape[1])))
-            crop_height = max(1, int(round((y1 - y0) * frame.shape[0])))
+            crop_width = max(1, round((x1 - x0) * frame.shape[1]))
+            crop_height = max(1, round((y1 - y0) * frame.shape[0]))
             crop = frame[
-                int(round(y0 * frame.shape[0])) : int(round(y1 * frame.shape[0])),
-                int(round(x0 * frame.shape[1])) : int(round(x1 * frame.shape[1])),
+                round(y0 * frame.shape[0]) : round(y1 * frame.shape[0]),
+                round(x0 * frame.shape[1]) : round(x1 * frame.shape[1]),
             ]
         with self._lock:
             results = self._model.track(

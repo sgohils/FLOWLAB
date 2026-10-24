@@ -1,6 +1,5 @@
 import { useReplay } from "../state/ReplayContext";
 import { formatTimecode } from "../utils/format";
-import { Label } from "./Primitives";
 
 const RATES = [0.25, 0.5, 1, 2];
 
@@ -15,7 +14,7 @@ export function ReplayTransport() {
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule bg-surface px-4 py-2.5">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1" role="group" aria-label="Replay transport">
         <button
           onClick={toggle}
           disabled={!duration}
@@ -28,7 +27,7 @@ export function ReplayTransport() {
           onClick={() => step(-1)}
           disabled={!duration}
           title="Back one second"
-          className="rounded border border-rule px-2 py-1 text-[12px] text-ink-soft hover:border-ink-faint disabled:opacity-40"
+          aria-label="Step back one second"
         >
           −1s
         </button>
@@ -36,13 +35,17 @@ export function ReplayTransport() {
           onClick={() => step(1)}
           disabled={!duration}
           title="Forward one second"
-          className="rounded border border-rule px-2 py-1 text-[12px] text-ink-soft hover:border-ink-faint disabled:opacity-40"
+          aria-label="Step forward one second"
         >
           +1s
         </button>
       </div>
 
-      <div className="flex min-w-[220px] flex-1 items-center gap-3">
+      <div
+        className="flex min-w-[220px] flex-1 items-center gap-3"
+        role="group"
+        aria-label="Replay position"
+      >
         <input
           type="range"
           min={0}
@@ -59,7 +62,7 @@ export function ReplayTransport() {
         </span>
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1" role="group" aria-label="Playback rate">
         {RATES.map((value) => (
           <button
             key={value}
@@ -94,26 +97,5 @@ export function ReplayTransport() {
         {loading && <span className="text-[11px] text-ink-faint">loading replay…</span>}
       </div>
     </div>
-  );
-}
-
-/** Small header used above each connected panel. */
-export function EvidenceHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <Label>{children}</Label>
-      <PlaybackBadge />
-    </div>
-  );
-}
-
-function PlaybackBadge() {
-  const { playing, time, replayOnly } = useReplay();
-  if (!time && !playing) return null;
-  return (
-    <span className="font-mono text-[10px] text-ink-faint">
-      {replayOnly ? "replay" : "t"} {formatTimecode(time)}
-      {playing ? " ▶" : ""}
-    </span>
   );
 }

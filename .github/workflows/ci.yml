@@ -1,0 +1,154 @@
+# FLOWLAB continuous integration.
+#
+# Two independent jobs, both running on every push and pull request.  Neither
+# downloads a model, needs a GPU or reads a real video: the demo dataset is
+# synthetic and already in the repository.  (The one thing that would have - the
+# YOLO checkpoint, pulled in by /api/health - is disabled on purpose, see the
+# FLOWLAB_MODEL comment in the backend job.)  The only network access is pip and
+# npm.  CI that needs a 6 MB model download to prove "the imports still work" is
+# CI that goes red for reasons unrelated to the change.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# No job needs to write to the repository, and least privilege should be the
+# default rather than something you add after an incident.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run pointless.  One group per
+# workflow+ref, so branches do not cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # Generous because `pip install ultralytics` pulls torch, which is the
+    # bulk of the wall clock here.  Nothing in this job touches a GPU.
+    timeout-minutes: 25
+    strategy:
+      # Do not let one broken Python version hide the fact that another works.
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor in pyproject.toml; 3.13 is what the README calls
+        # tested.  Both install the same wheel-free requirements.
+        python-version: ["3.11", "3.13"]
+    env:
+      # Point the detector at a checkpoint that cannot resolve, so nothing in
+      # the job can fetch one.  This is not paranoia: /api/health calls
+      # `detector.load()`, and Ultralytics downloads yolo11n.pt (~6 MB) the
+      # moment the file is missing.  Verified locally - with this set and the
+      # weights deleted, the suite still passes and creates no file.
+      # test_health_reports_the_model_state accepts "degraded", so the health
+      # endpoint is still exercised, along with its failure path.
+      FLOWLAB_MODEL: ci-no-such-model.pt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+            pyproject.toml
+
+      - name: Install backend and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: python -m ruff check backend
+
+      # mypy is a hard gate, not advisory: as of this commit it reports
+      # "Success: no issues found in 38 source files" with the configuration in
+      # pyproject.toml ([tool.mypy], python_version = 3.12 - see the comment
+      # there for why it is not 3.11).  If this step starts failing, the fix
+      # belongs in the code, not in a continue-on-error here.
+      - name: Type check (mypy)
+        run: python -m mypy
+
+      - name: Test with coverage
+        # No extra -q here: [tool.pytest.ini_options].addopts already carries one,
+        # and a second -q turns pytest into -qq, which silences the "N passed"
+        # summary line.  The job log should end with the count.
+        # `-m "not slow"` is what makes the `slow` marker mean something:
+        # CONTRIBUTING.md tells contributors to mark a test that needs the real
+        # YOLO checkpoint or a real video with it, and to keep it out of CI.
+        # Nothing is marked slow today, so this changes no result - it makes the
+        # instruction true at the moment the first one is.
+        run: |
+          python -m pytest backend/tests \
+            -m "not slow" \
+            --cov=backend \
+            --cov-report=term-missing \
+            --cov-report=xml
+
+      # The same guard as the pre-commit hook: UTF-8 everywhere, no cp1252
+      # mojibake.  This repository was damaged by it once already.
+      - name: Check source encoding
+        run: python -m backend.scripts.check_encoding
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  frontend:
+    name: frontend (node${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Node 20 is the oldest LTS Vite 6 supports; Node 24 is what the README
+        # calls tested.  22 is skipped deliberately: it is strictly between the
+        # two and adds matrix minutes without adding signal.
+        node-version: ["20", "24"]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci`, not `npm install`: it installs exactly what the lockfile
+      # says and fails if the lockfile and package.json disagree.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload built frontend
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-node${{ matrix.node-version }}
+          path: frontend/dist
+          if-no-files-found: warn
+          retention-days: 7

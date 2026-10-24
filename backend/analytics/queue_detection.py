@@ -71,18 +71,92 @@ class QueueSeries:
         return float(np.count_nonzero(self.counts) * self.step)
 
     def to_samples(self, limit: int | None = None) -> list[QueueSample]:
-        """Convert to the JSON payload, optionally downsampled for the chart."""
+        """Convert to the JSON payload, thinned to at most ``limit`` samples.
+
+        Thinning keeps the **maximum** of each bucket rather than every n-th
+        sample.  The queue is a step function, and a peak that lasts less than
+        the bucket width would otherwise vanish from the chart while the metric
+        card still reported it - the interface contradicting its own evidence.
+        Taking the maximum makes the displayed series a faithful, if coarser,
+        view of the measured one.
+        """
         if self.counts.size == 0:
             return []
-        if limit and self.counts.size > limit:
-            stride = int(np.ceil(self.counts.size / limit))
-            times, counts = self.times[::stride], self.counts[::stride]
-        else:
+        if not limit or self.counts.size <= limit:
             times, counts = self.times, self.counts
+        else:
+            bucket = int(np.ceil(self.counts.size / limit))
+            usable = (self.counts.size // bucket) * bucket
+            times = self.times[:usable].reshape(-1, bucket)[:, 0]
+            counts = self.counts[:usable].reshape(-1, bucket).max(axis=1)
+            # A ragged tail must not be dropped: it can hold the peak.
+            if usable < self.counts.size:
+                times = np.append(times, self.times[usable])
+                counts = np.append(counts, self.counts[usable:].max())
         return [
             QueueSample(time=round(float(t), 3), queue=int(c))
-            for t, c in zip(times, counts)
+            for t, c in zip(times, counts, strict=True)
         ]
+
+
+def build_region_occupancy_series(
+    tracks: Sequence[Trajectory],
+    regions: Regions,
+    duration: float,
+    step: float,
+) -> QueueSeries | None:
+    """Sample how many vehicles are geometrically inside the queue region.
+
+    This is a **purely geometric** count: no speed threshold and no
+    ``min_queue_seconds`` hold.  It is therefore exactly what a human annotator
+    can reproduce by pausing the frame and counting every vehicle inside the
+    polygon, which is what makes a disagreement with that count attributable to a
+    missed detection or a duplicate id rather than to a definition gap.
+
+    It is deliberately **not** the definition behind the wait estimate; see
+    ``build_queue_series`` for that.  Both series are reported so the effect of
+    the speed filter stays visible instead of being hidden inside one number.
+
+    ``episodes`` stays empty: a stay inside the polygon is only a queue *visit*
+    once the slowness rule has been applied to it.
+    """
+    if not regions.has_queue or duration <= 0 or not tracks:
+        return None
+    # Identical grid to build_queue_series, so the two series can be read
+    # against each other instant by instant.
+    size = max(1, int(np.ceil(duration / step)))
+    times = np.arange(size, dtype=float) * step
+    counts = np.zeros(size, dtype=np.int32)
+    max_gap = max_track_gap(step)
+
+    for track in tracks:
+        points = track.points
+        # A vehicle is one vehicle at one instant however many of its segments
+        # cover that instant, so the segments are walked in time order and the
+        # counting cursor only ever moves forward.  Without this a vehicle
+        # creeping through the region is counted once per segment.
+        cursor = 0
+        for index in range(len(points) - 1):
+            a, b = points[index], points[index + 1]
+            gap = b.time - a.time
+            if gap <= 0 or gap > max_gap:
+                # A lost track must not be bridged, so its instants are dropped
+                # and the cursor is released for the window that follows.
+                cursor = 0
+                continue
+            first = max(0, floor(a.time / step), cursor)
+            last = min(size - 1, floor(b.time / step))
+            for k in range(first, last + 1):
+                moment = times[k]
+                if not a.time <= moment <= b.time:
+                    continue
+                fraction = (moment - a.time) / gap
+                x = a.x + fraction * (b.x - a.x)
+                y = a.y + fraction * (b.y - a.y)
+                if point_in_polygon((x, y), regions.queue):
+                    counts[k] += 1
+                cursor = k + 1
+    return QueueSeries(step=step, times=times, counts=counts)
 
 
 def build_queue_series(

@@ -8,14 +8,17 @@ Run locally with::
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.exceptions import HTTPException as StarletteHTTPException
 from pydantic import ValidationError
 
 from .api.routes_analysis import router as analysis_router
@@ -37,7 +40,7 @@ FRONTEND_DIST = PROJECT_DIR / "frontend" / "dist"
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     register_demo()
     # Jobs live in memory: anything still marked "processing" in the database
     # describes work that was interrupted by a previous shutdown.
@@ -69,12 +72,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-    ],
+    # The API has no authentication of any kind, so the browser origin list is
+    # the only access boundary there is.  It stays on 127.0.0.1 by design: see
+    # ``FLOWLAB_CORS_ORIGINS`` in backend/config.py before changing it.
+    allow_origins=list(settings.cors_origins),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,12 +110,14 @@ async def request_validation_error(request: Request, exc: RequestValidationError
     """Body/query validation: report the offending field, never a traceback."""
     first = exc.errors()[0] if exc.errors() else {}
     field = ".".join(str(part) for part in first.get("loc", ())[1:]) or "request"
-    return _error(422, f"{field}: {first.get('msg', 'invalid value')}", "Check the value and try again.")
+    return _error(
+        422, f"{field}: {first.get('msg', 'invalid value')}", "Check the value and try again."
+    )
 
 
 @app.exception_handler(ValidationError)
 async def validation_error(request: Request, exc: ValidationError) -> JSONResponse:
-    first = exc.errors()[0] if exc.errors() else {}
+    first: dict[str, Any] = dict(exc.errors()[0]) if exc.errors() else {}
     field = ".".join(str(part) for part in first.get("loc", ())[1:]) or "request"
     return _error(
         422,
@@ -130,7 +133,11 @@ async def storage_error(request: Request, exc: StorageError) -> JSONResponse:
 
 @app.exception_handler(DetectorError)
 async def detector_error(request: Request, exc: DetectorError) -> JSONResponse:
-    return _error(503, str(exc), "The API is still running; processing will resume once the model loads.")
+    return _error(
+        503,
+        str(exc),
+        "The API is still running; processing will resume once the model loads.",
+    )
 
 
 @app.exception_handler(ValueError)
@@ -152,13 +159,32 @@ async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
 # Optional: serve the built single page app from the same origin.
 # --------------------------------------------------------------------------------------
 
+def spa_file(full_path: str) -> Path:
+    """Resolve a request path to a file inside :data:`FRONTEND_DIST`.
+
+    The path segment comes straight from the URL, so it is *resolved* and then
+    checked for containment before anything is served.  A request for
+    ``../../../../etc/passwd`` is not a file the SPA is allowed to hand out:
+    it falls back to ``index.html`` exactly like any unknown client-side route.
+    Symlinks are resolved too, so an ``assets/`` link pointing outside the build
+    directory is refused rather than followed.
+    """
+    index = FRONTEND_DIST / "index.html"
+    if not full_path:
+        return index
+    try:
+        root = FRONTEND_DIST.resolve()
+        candidate = (FRONTEND_DIST / full_path).resolve()
+    except OSError:  # unreadable path, e.g. a name that is too long on Windows
+        return index
+    if root not in candidate.parents or not candidate.is_file():
+        return index
+    return candidate
+
+
 if FRONTEND_DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str) -> FileResponse:
-        candidate = FRONTEND_DIST / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
-
+        return FileResponse(spa_file(full_path))

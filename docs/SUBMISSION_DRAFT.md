@@ -58,14 +58,32 @@ repository. Each is verifiable by reading the code or running the tests.
 | A restart left jobs "processing" forever | The interface polled a job that no longer existed, with no error and no way out | Orphaned records are marked as interrupted on startup with a message and a way to retry |
 | An observed-vs-model difference could be read as the effect of an intervention | The comparison was dishonest about where the number came from | The result is now a three-way comparison: observed, unmodified model, modified model, with model error and scenario effect reported separately |
 | The detector is blind at a distance | A telephoto clip produced a handful of tiny tracks | An optional region-of-interest crop is applied before inference, which roughly tripled the detections on the test clip |
+| Thinning the queue series for the chart dropped short peaks | The chart could show a **smaller** peak than the metric card beside it | Each bucket keeps its maximum, so the displayed series can never under-report a queue. Test: `test_thinned_series_never_loses_a_brief_peak` |
+| **Every failed analysis raised `TypeError` before it could be recorded** | The failure path passed `status=` to a parameter named `status_value`, so the database row stayed at `processing` until the next restart and the user saw a job that would never finish | One keyword, found by enabling the type checker, plus `backend/tests/test_job_failure.py` |
+| **No database connection was ever closed** | `with connection:` in sqlite3 ends a transaction, it does not close; every read and write leaked a handle | `_connect()` is now a context manager that closes in a `finally`. Found by turning warnings into errors; 6 tests pin the lifetime |
+| **A "runs on my machine" API could serve files outside its own directory** | The single page app route took the request path and served it unchecked | The path is resolved and checked for containment, falling back to `index.html` |
+| **The environment checker could not fail** | It reported "ok" for installed versions whatever they were, so an OpenCV 5 install survived a declared `<5` bound for months | The bounds are read from `requirements.txt` and compared with what is actually installed; 20 tests |
+| **The interface's help promised a key that did nothing** | "Press Enter" was in the on-screen instructions and no handler existed | Enter closes a region polygon and Escape abandons the draft; plus a focus ring, reduced-motion support, live status and a skip link |
+
+**Testing.** 277 backend tests and 50 frontend tests, none of which touch the
+network or run the detector, plus ruff, mypy with warnings-as-errors, coverage
+measurement, and a CI matrix that runs on Python 3.11 and 3.13 and Node 20 and
+24. Twelve of the defects above were found *by that tooling*, not by using the
+application, and each now has a regression test.
 
 **Validation.** The measurement layer is checked against ground truth that is
 known by construction (`docs/VALIDATION_REPORT.md`): the arrival and exit counts
-match exactly, and the queue length series agrees to a mean absolute error of
-**0.211 vehicles** across 1350 instants, with the residual fully explained by the
-deliberate 0.5 s stability rule. **The detector is not yet validated against
-human annotation of real footage** — that is the next piece of work and is
-listed as the student's task.
+match exactly, and the region occupancy series - every vehicle inside the region
+at any speed - agrees with the reference's own occupancy counts to a mean
+absolute error of **0.028 vehicles** across 1350 instants, never more than 1 and
+exact on 97.2 % of them, with the small remainder explained by the chart thinning
+rather than by a rule difference. The application's queued series (inside the
+region and below the speed threshold for at least 0.5 s) is a different quantity
+and is reported against the reference's slow-rule counts as its own block, where
+the residual of 0.188 vehicles is the deliberate 0.5 s stability rule. Re-run
+2026-09-30, unchanged.
+**The detector is not yet validated against human annotation of real footage** —
+that is the next piece of work and is listed as the student's task.
 
 ## 4. What I learned and what I contributed
 
@@ -101,8 +119,8 @@ found, and the experiments you ran. See `docs/STUDENT_CONTRIBUTIONS.md`.
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS 4, Recharts
 - **Modelling:** a reduced Intelligent Driver Model (car following) with a
   service gate, written for this project
-- **Testing:** 129 automated tests (pytest + FastAPI TestClient)
-- **Tooling:** Git, headless Chrome for interface verification
+- **Testing:** 277 backend tests (pytest + FastAPI TestClient) and 50 frontend tests (vitest + React Testing Library on jsdom); ruff, mypy and coverage as enforced gates
+- **Tooling:** Git, ruff, mypy, pre-commit, GitHub Actions (Python 3.11 and 3.13, Node 20 and 24), headless Chrome for interface verification
 
 ## 6. Honest limitations
 
@@ -116,16 +134,27 @@ found, and the experiments you ran. See `docs/STUDENT_CONTRIBUTIONS.md`.
 - The detector has not been validated against human annotation of a real clip.
 - One queue region, one corridor: FLOWLAB is a teaching and exploration tool, not
   a traffic engineering study.
+- The sampling rate is not validated: it is not known how much any metric moves
+  between 5 and 15 frames a second.
+- The container path is unverified. Docker was not available on the machine
+  this was built on, so the image has been reviewed and its build inputs
+  tested, but it has never been built or run.
+- The exit service time is a lower bound, and a queue of one vehicle is
+  ambiguous: a car pausing at a kerb looks like a car joining a queue.
 
 ## 7. What I would do next
 
 1. Complete the hand-annotated validation on a real school-gate clip, and report
    the error honestly whatever it is.
-2. Study how the measurements move when the sampling rate changes (5, 10, 15 fps).
-3. Add a second exit gate with a routing matrix, so a scenario can test
+2. Drive the interface end to end in a browser, including with the keyboard alone.
+   The most recent changes have been type-checked but not seen rendered.
+3. Study how the measurements move when the sampling rate changes (5, 10, 15 fps).
+4. Add a second exit gate with a routing matrix, so a scenario can test
    *where* to send cars, not only how fast they are processed.
-4. Add perspective calibration from four surveyed points so real units become
+5. Add perspective calibration from four surveyed points so real units become
    defensible.
+6. Build the container image and get one green CI run, so both stop being
+   statements of intent.
 
 ## 8. AI and external tool disclosure
 
@@ -134,6 +163,12 @@ found, and the experiments you ran. See `docs/STUDENT_CONTRIBUTIONS.md`.
 - **Extent:** the large majority of the code was written with AI assistance and
   then reviewed, tested and corrected. Every defect found in the second pass is
   listed in `docs/AI_ASSISTANCE.md`, including the ones the AI itself introduced.
+- **This was true of the most recent pass too.** The engineering pass of
+  2026-09-30 was AI-driven: it enabled the linter and type checker, found and
+  fixed two defects that had shipped, removed dead code, added the frontend
+  test suite and the continuous-integration workflow, and ran every
+  verification command it claims. The full disclosure is in
+  `docs/AI_ASSISTANCE.md`.
 - **Student-owned work:** the annotated real-footage validation, the design
   decisions, the interpretation and the experiments listed in
   `docs/STUDENT_CONTRIBUTIONS.md`.

@@ -113,8 +113,9 @@ export default function Analysis() {
             <p className="mt-1.5 text-[12px] text-ink-faint">
               {analysis.video.filename} · {analysis.video.width}×{analysis.video.height} ·{" "}
               {formatNumber(analysis.video.duration)}s · {formatNumber(analysis.video.fps)} fps
-              source · {formatBytes(analysis.video.size_bytes)} · sampled at{" "}
-              {analysis.video.processed_fps} fps
+              source
+              {analysis.video.size_bytes > 0 && ` · ${formatBytes(analysis.video.size_bytes)}`} ·
+              sampled at {analysis.video.processed_fps} fps
             </p>
           )}
         </div>
@@ -140,7 +141,17 @@ export default function Analysis() {
             </Button>
             <Link
               to={`/simulation/${analysis.analysis_id}`}
-              className="rounded border border-ink bg-ink px-4 py-2 text-[13px] font-medium text-paper hover:bg-ink-soft"
+              aria-disabled={analysis.arrivals.length === 0}
+              title={
+                analysis.arrivals.length === 0
+                  ? "No arrivals were measured, so there is nothing to simulate."
+                  : "Compare a hypothetical scenario with the footage and the unmodified model."
+              }
+              className={`rounded border px-4 py-2 text-[13px] font-medium ${
+                analysis.arrivals.length === 0
+                  ? "pointer-events-none border-rule bg-transparent text-ink-faint"
+                  : "border-ink bg-ink text-paper hover:bg-ink-soft"
+              }`}
             >
               Simulate a scenario
             </Link>

@@ -1,10 +1,19 @@
+# FLOWLAB backend runtime dependencies.
+#
+# These bounds are duplicated in [project].dependencies in pyproject.toml, which
+# is the packaging source of truth.  This file is kept as an explicit pin list
+# so that `pip install -r backend/requirements.txt` works in a plain checkout
+# with no build step - that is what run.bat / run.sh install and the Docker
+# image do.  If you change a bound here, change it there too; CI installs from
+# this file, so a drift between the two shows up as a resolution difference.
+#
+# Test-only dependencies are NOT here.  Use backend/requirements-dev.txt, or
+# `pip install -e ".[dev]"` from the repository root.
+
 fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
 python-multipart>=0.0.20,<1
 pydantic>=2.10,<3
 numpy>=2.1,<3
-opencv-python>=4.10,<5
+opencv-python>=4.10,<6
 ultralytics>=8.3,<9
-# Testing
-pytest>=8,<10
-httpx>=0.28,<1

@@ -105,14 +105,41 @@ tenth of a second. The comparison is a count inside the window, so what matters
 most is getting the *count* right, not the exact timestamp.
 
 **`queue_counts`** — a handful of instants where you pause the video and count
-how many vehicles are inside the queue region. 10 to 20 instants spread across
-the clip is plenty. This is the most valuable field: it checks the central
-number of the whole application.
+**every** vehicle geometrically inside the queue region, whether it is moving or
+stopped. 10 to 20 instants spread across the clip is plenty. This is the most
+valuable field: it checks the central number of the whole application.
 
-**`queue_visits`** — for 3 to 5 vehicles, the moment it joins the queue and the
-moment it leaves. If a vehicle is still in the queue when the clip ends, set
-`"censored": true` and leave `exit_s` as `null`; censored visits are excluded
-from the comparison because their true duration is unknown by construction.
+Count the region, not the traffic state. A car crawling into the queue counts; a
+car stopped outside the polygon does not. If the detector loses a car, or splits
+one car into two tracks, the total is wrong here, which is exactly what the field
+is for.
+
+This is deliberately **not** the application's "queued" number. The application
+also requires the vehicle to be below `speed_threshold` (default **0.012 frame
+widths per second**) and to stay there continuously for at least
+`min_queue_seconds` (default **0.5 s**). So the comparison script reports two
+blocks: your counts against the **region occupancy** series, which is the
+like-for-like comparison, and your counts against the **queued** series, so that
+the effect of the speed filter is visible instead of being hidden inside a single
+error figure.
+
+If your file also carries an `occupancy_counts` series, the script uses that for
+the headline block and `queue_counts` only as a fallback, and the report names
+which one it used. With `queue_counts` alone it cannot tell which rule your file
+follows, so it says so in the report rather than guessing.
+
+**`queue_visits`** — for 3 to 5 vehicles, the moment it enters the queue region
+and the moment it leaves it. Measure a visit as **time spent inside the
+polygon**, by the same rule as `queue_counts`. If a vehicle is still in the
+region when the clip ends, set `"censored": true` and leave `exit_s` as `null`;
+censored visits are excluded from the comparison because their true duration is
+unknown by construction.
+
+The application's wait figure is stricter: it only counts time the vehicle is
+inside the polygon **and** below `speed_threshold` for at least
+`min_queue_seconds`. A visit you time by hand will therefore usually come out
+**longer** than the application's figure for the same vehicle, and a systematic
+offset of that sign points at the speed rule rather than at the detector.
 
 ## 4. Running the comparison
 
@@ -123,9 +150,13 @@ python -m backend.scripts.validate_against_reference backend/demo/sample_referen
 # your clip against your annotations
 python -m backend.scripts.validate_against_reference backend/validation/mine.json \
     --clip sample.mp4 \
-    --markdown docs/VALIDATION_REPORT.md \
-    --json docs/validation.json
+    --markdown docs/validation-detector.md \
+    --json docs/validation-detector.json
 ```
+
+Your own results go to `docs/validation-detector.*` rather than to the
+`docs/validation-measurement.*` files, so annotating a real clip can never
+overwrite the synthetic ground-truth report.
 
 The report records the clip, the configuration, the computed results, and the
 error against each annotated quantity.

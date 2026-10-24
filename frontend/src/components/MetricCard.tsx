@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 export interface MetricEvidence {
   /** The formula, in plain language. */
@@ -22,6 +22,11 @@ interface MetricCardProps {
    * dashboard stays readable and the evidence is one interaction away.
    */
   evidence?: MetricEvidence;
+  /**
+   * A one-line reason shown instead of the value when the measurement could
+   * not be made. "Unavailable" is shown, never a zero.
+   */
+  unavailableReason?: string;
 }
 
 export function MetricCard({
@@ -32,8 +37,12 @@ export function MetricCard({
   approximate = false,
   emphasis = false,
   evidence,
+  unavailableReason,
 }: MetricCardProps) {
   const [open, setOpen] = useState(false);
+  const unavailable = value === "—" && Boolean(unavailableReason);
+  const canExplain = Boolean(evidence) && !unavailable;
+  const panelId = useId();
 
   return (
     <div
@@ -55,10 +64,11 @@ export function MetricCard({
                 approx.
               </span>
             )}
-            {evidence && (
+            {canExplain && (
               <button
                 onClick={() => setOpen((current) => !current)}
                 aria-expanded={open}
+                aria-controls={panelId}
                 title="Why this number?"
                 className="rounded border border-rule px-1 text-[10px] leading-[14px] text-ink-faint transition-colors hover:border-ink hover:text-ink"
               >
@@ -73,11 +83,15 @@ export function MetricCard({
           </span>
           {unit && <span className="text-[12px] text-ink-faint">{unit}</span>}
         </div>
-        {caption && <p className="mt-2 text-[11px] leading-snug text-ink-faint">{caption}</p>}
+        {unavailable ? (
+          <p className="mt-2 text-[11px] leading-snug text-ink-faint">{unavailableReason}</p>
+        ) : (
+          caption && <p className="mt-2 text-[11px] leading-snug text-ink-faint">{caption}</p>
+        )}
       </div>
 
       {open && evidence && (
-        <div className="border-t border-rule-soft px-4 py-3">
+        <div id={panelId} className="border-t border-rule-soft px-4 py-3">
           <p className="font-mono text-[11px] leading-relaxed text-ink-soft">
             {evidence.formula}
           </p>

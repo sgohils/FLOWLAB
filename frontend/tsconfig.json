@@ -14,9 +14,16 @@
     "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": true,
+    "noImplicitOverride": true,
+    // noUncheckedIndexedAccess is deliberately off: 41 diagnostics, nearly all
+    // array indexing the code has already proven safe by construction (a pair
+    // of [x, y] coordinates, a bracketing pair from a binary search). Turning
+    // it on would mean sprinkling non-null assertions through the replay maths
+    // and the region editor - the two places where an assertion would be least
+    // trustworthy. Revisit when the payload types are tightened instead.
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "vitest.config.ts"]
 }

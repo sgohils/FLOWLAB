@@ -8,10 +8,11 @@ vehicle covers each second.  It is only ever used for comparisons
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from math import hypot
 from statistics import fmean
-from typing import Sequence
 
 from ..models.schemas import StopInterval, Trajectory, TrajectoryPoint
 
@@ -27,7 +28,7 @@ def segment_speed(previous: TrajectoryPoint, point: TrajectoryPoint) -> float:
 def path_length(points: Sequence[TrajectoryPoint]) -> float:
     """Total travelled distance in normalised units (sum of segment lengths)."""
     return sum(
-        hypot(b.x - a.x, b.y - a.y) for a, b in zip(points, points[1:])
+        hypot(b.x - a.x, b.y - a.y) for a, b in pairwise(points)
     )
 
 
@@ -71,7 +72,9 @@ def detect_stops(
         if gap <= 0 or gap > max_gap:
             # Track discontinuity: close the open stop and skip the gap.
             if start_index is not None:
-                _append_stop(stops, track, points, start_index, last_index, min_stop_seconds, queue_polygon)
+                _append_stop(
+                    stops, track, points, start_index, last_index, min_stop_seconds, queue_polygon
+                )
                 start_index = None
             continue
         if segment_speed(previous, point) < speed_threshold:
@@ -81,7 +84,9 @@ def detect_stops(
                 last_index = index
         else:
             if start_index is not None:
-                _append_stop(stops, track, points, start_index, last_index, min_stop_seconds, queue_polygon)
+                _append_stop(
+                    stops, track, points, start_index, last_index, min_stop_seconds, queue_polygon
+                )
                 start_index = None
     if start_index is not None:
         _append_stop(stops, track, points, start_index, last_index, min_stop_seconds, queue_polygon)
@@ -107,7 +112,9 @@ def _append_stop(
     window = points[start_index : end_index + 1] or [points[end_index]]
     x = fmean(p.x for p in window)
     y = fmean(p.y for p in window)
-    in_queue = bool(queue_polygon) and any(point_in_polygon((p.x, p.y), queue_polygon) for p in window)
+    in_queue = bool(queue_polygon) and any(
+        point_in_polygon((p.x, p.y), queue_polygon) for p in window
+    )
     stops.append(
         StopInterval(
             vehicle_id=track.vehicle_id,

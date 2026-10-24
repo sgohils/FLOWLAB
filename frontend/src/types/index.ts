@@ -8,7 +8,6 @@ export type Polygon = Point[];
 export type Line = Point[];
 
 export type AnalysisSource = "video" | "demo";
-export type RegionKind = "queue" | "entry" | "exit" | "conflict";
 export type JobState = "queued" | "processing" | "complete" | "error";
 export type StageState = "pending" | "active" | "done" | "error";
 
@@ -27,6 +26,14 @@ export interface Regions {
   entry_direction: CrossingDirection;
   exit_direction: CrossingDirection;
   auto_detected: boolean;
+}
+
+/** A queue region is usable once it has at least three corners. */
+export function hasQueueRegion(regions: Regions | null | undefined): boolean {
+  // Array.isArray as well as the length: a record written by an older version
+  // can carry a queue that is not a list, and that should read as "not drawn"
+  // rather than take the page down.
+  return Boolean(regions && Array.isArray(regions.queue) && regions.queue.length >= 3);
 }
 
 export interface VideoInfo {
@@ -165,8 +172,14 @@ export interface Analysis {
   regions: Regions;
   summary: Summary;
   calibration: Calibration;
+  evidence: EvidenceFacts;
   trajectories: Trajectory[];
   queue_timeseries: QueueSample[];
+  /**
+   * Vehicles geometrically inside the queue region at each instant, ignoring
+   * speed - the quantity a human annotator can reproduce by pausing a frame.
+   */
+  region_occupancy_timeseries: QueueSample[];
   bottlenecks: Bottleneck[];
   heat_grid: HeatCell[];
   events: TrafficEvent[];
@@ -271,6 +284,7 @@ export interface SimulationResult {
   /** C - the model with the scenario applied. */
   simulated: SimulationMetrics;
   fidelity: ModelFidelity;
+  sensitivity: SensitivityRange | null;
   /** Scenario effect: C compared with B. */
   deltas: MetricDelta[];
   /** Model mismatch: B compared with A. */
@@ -282,6 +296,42 @@ export interface SimulationResult {
   baseline_tracks: SimulatedTrack[];
   notes: string[];
   disclaimer: string;
+}
+
+export interface EvidenceFacts {
+  observation_seconds: number;
+  sampling_fps: number;
+  vehicles_detected: number;
+  vehicles_tracked: number;
+  vehicles_crossed_entry: number;
+  vehicles_crossed_exit: number;
+  completed_queue_visits: number;
+  censored_queue_visits: number;
+  censored_seconds: number;
+  registered_stops: number;
+  slow_seconds_total: number;
+  tracks: number;
+  short_fragments: number;
+  gaps: number;
+  missing_sample_share: number;
+}
+
+export interface SensitivityPoint {
+  service_time_seconds: number;
+  peak_queue: number;
+  average_wait_seconds: number;
+  throughput_per_minute: number;
+  vehicles_left_at_window_end: number;
+}
+
+export interface SensitivityRange {
+  parameter: string;
+  method: string;
+  baseline_value: number;
+  values: SensitivityPoint[];
+  peak_queue_range: [number, number];
+  average_wait_range: [number, number];
+  note: string;
 }
 
 export interface DeleteResult {
@@ -333,6 +383,7 @@ export interface Meta {
   max_duration_seconds: number;
   stages: { key: string; label: string }[];
 }
+
 
 export interface UploadResponse {
   analysis_id: string;

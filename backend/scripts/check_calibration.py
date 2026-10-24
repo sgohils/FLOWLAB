@@ -8,6 +8,7 @@ metrics in the expected direction?
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from ..models.schemas import Analysis, Scenario
 from ..simulation.simulator import run_scenario
@@ -16,7 +17,7 @@ DEMO_FILE = "backend/demo/sample_analysis.json"
 
 
 def main() -> None:
-    with open(DEMO_FILE, encoding="utf-8") as handle:
+    with Path(DEMO_FILE).open(encoding="utf-8") as handle:
         analysis = Analysis.model_validate(json.load(handle))
     summary = analysis.summary
     print("observed : peak", summary.peak_queue, "avgq", summary.average_queue,

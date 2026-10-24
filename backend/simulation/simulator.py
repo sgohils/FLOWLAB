@@ -30,9 +30,18 @@ from math import sqrt
 from statistics import fmean
 from typing import Literal
 
-from ..models.schemas import Analysis, MetricDelta, ModelFidelity, QueueSample
-from ..models.schemas import Scenario, SimulatedTrack
-from ..models.schemas import SimulationMetrics, SimulationResult
+from ..models.schemas import (
+    Analysis,
+    MetricDelta,
+    ModelFidelity,
+    QueueSample,
+    Scenario,
+    SensitivityPoint,
+    SensitivityRange,
+    SimulatedTrack,
+    SimulationMetrics,
+    SimulationResult,
+)
 from .scenarios import plan_scenario
 
 #: Integration step of the model, in seconds.
@@ -139,7 +148,7 @@ def simulate(
         # channel.  Vehicles are already ordered front to back, and vehicles
         # sharing a position are bumper to bumper, so the group structure can
         # be found in a single linear scan.
-        leaders: list[SimVehicle | None] = [None] * len(active)
+        leaders: list[int | None] = [None] * len(active)
         lane = [index for index, vehicle in enumerate(active) if vehicle.state != "EXITING"]
         groups: list[list[int]] = []
         cursor = 0
@@ -254,12 +263,20 @@ def simulate(
             vehicle.wait_seconds += last_time - vehicle.waiting_since
             vehicle.waiting_since = None
 
-    waited = [v.wait_seconds for v in vehicles if v.departure is not None and v.wait_seconds > 0]
-    completed = [v for v in vehicles if v.departure is not None]
-    total_delay = sum(
-        max(0.0, (v.departure - v.arrival) - free_flow)  # type: ignore[operator]
-        for v in completed
-    )
+    # One pass instead of three comprehensions: the ``is None`` test is made
+    # where it is used, so ``departure`` is a float below.  A vehicle still in
+    # the corridor at the end of the run has no departure time and cannot
+    # contribute a delay.
+    waited: list[float] = []
+    completed: list[SimVehicle] = []
+    total_delay = 0.0
+    for vehicle in vehicles:
+        if vehicle.departure is None:
+            continue
+        completed.append(vehicle)
+        if vehicle.wait_seconds > 0:
+            waited.append(vehicle.wait_seconds)
+        total_delay += max(0.0, (vehicle.departure - vehicle.arrival) - free_flow)
     in_window = [v for v in completed if v.arrival <= window + 1e-9]
     queue_values = [sample.queue for sample in queue_samples if sample.time <= window + 1e-9]
 
@@ -396,15 +413,6 @@ def _deltas(observed: SimulationMetrics, simulated: SimulationMetrics) -> list[M
     return deltas
 
 
-def is_baseline(scenario: Scenario) -> bool:
-    return (
-        abs(scenario.volume - 1.0) < 1e-9
-        and abs(scenario.service_multiplier - 1.0) < 1e-9
-        and scenario.spread_seconds <= 0
-        and scenario.channels == 1
-    )
-
-
 def _fidelity(observed: SimulationMetrics, baseline_run: SimulationRun) -> ModelFidelity:
     """How well the *unmodified* model reproduces the observed clip.
 
@@ -437,6 +445,64 @@ def _fidelity(observed: SimulationMetrics, baseline_run: SimulationRun) -> Model
         average_wait_model=baseline_run.average_wait,
         ratio=ratio,
         note=note,
+    )
+
+
+def service_time_sensitivity(
+    analysis: Analysis,
+    factors: Sequence[float] = (0.75, 1.0, 1.5),
+) -> SensitivityRange:
+    """Re-run the baseline under alternative exit service times.
+
+    Exit service time is the one parameter the application *estimates* rather
+    than counts, so its influence is worth showing.  The factors are stated
+    explicitly: this is a range of model outcomes under assumed values, not a
+    confidence interval, and no probability is implied.
+    """
+    calibration = analysis.calibration
+    baseline_service = max(0.5, calibration.service_time_seconds)
+    points: list[SensitivityPoint] = []
+    for factor in factors:
+        service = round(baseline_service * factor, 3)
+        run = simulate(
+            list(analysis.arrivals),
+            window_seconds=calibration.observation_seconds,
+            free_flow_seconds=calibration.free_flow_seconds,
+            service_time=service,
+            channels=1,
+            output_step=1.0 / 10.0,
+        )
+        points.append(
+            SensitivityPoint(
+                service_time_seconds=service,
+                peak_queue=run.peak_queue,
+                average_wait_seconds=run.average_wait,
+                throughput_per_minute=run.throughput_per_minute,
+                vehicles_left_at_window_end=run.unserved,
+            )
+        )
+    return SensitivityRange(
+        parameter="exit service time",
+        method=(
+            "Baseline re-run with the estimated service time multiplied by "
+            + ", ".join(f"{factor:g}" for factor in factors)
+            + ". All other inputs unchanged."
+        ),
+        baseline_value=baseline_service,
+        values=points,
+        peak_queue_range=(
+            min(point.peak_queue for point in points),
+            max(point.peak_queue for point in points),
+        ),
+        average_wait_range=(
+            round(min(point.average_wait_seconds for point in points), 2),
+            round(max(point.average_wait_seconds for point in points), 2),
+        ),
+        note=(
+            "This shows how much the model output depends on an estimated "
+            "parameter. It is not a statistical confidence interval and implies "
+            "no probability."
+        ),
     )
 
 
@@ -518,6 +584,11 @@ def run_scenario(
         baseline=baseline,
         simulated=simulated,
         fidelity=_fidelity(observed, baseline_run),
+        sensitivity=(
+            service_time_sensitivity(analysis)
+            if analysis.arrivals
+            else None
+        ),
         # Scenario effect: modified model vs unmodified model.
         deltas=_deltas(baseline, simulated),
         # Model mismatch: unmodified model vs what the camera measured.
@@ -530,5 +601,3 @@ def run_scenario(
         notes=notes,
         disclaimer=DISCLAIMER,
     )
-
-

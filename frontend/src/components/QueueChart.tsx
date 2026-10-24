@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -24,6 +25,24 @@ interface QueueChartProps {
   interactive?: boolean;
 }
 
+
+/**
+ * The highest sample in the series, or null when there is no series.
+ *
+ * The scan is seeded with the first real sample rather than a zero
+ * placeholder. With a placeholder, a series that is flat at zero reports the
+ * peak as t = 0 - which is off the front of the clip - the day anything reads
+ * `peak.time`. Only `peak.queue` is read today, so the two agree; seeding
+ * correctly makes them agree for the right reason.
+ */
+export function peakSample(data: QueueSample[]): QueueSample | null {
+  if (data.length === 0) return null;
+  return data.reduce(
+    (best, sample) => (sample.queue > best.queue ? sample : best),
+    data[0],
+  );
+}
+
 export function QueueChart({
   data,
   events = [],
@@ -37,6 +56,34 @@ export function QueueChart({
   // this chart, not the whole page, once per frame.
   const { time, seek } = useReplay();
   const cursorTime = interactive ? time : undefined;
+
+  // This chart re-renders on every animation frame while the clip plays, so
+  // everything that does not depend on `time` is computed once.
+  const lastTime = useMemo(
+    () => (data.length > 0 ? data[data.length - 1].time : 0),
+    [data],
+  );
+  const peak = useMemo(() => peakSample(data), [data]);
+  const peakMarks = useMemo(
+    () =>
+      showEvents
+        ? events
+            .filter((event) => event.kind === "peak")
+            .map((event) => ({ key: `${event.kind}-${event.time}`, time: event.time }))
+        : [],
+    [events, showEvents],
+  );
+  const handleChartClick = useCallback(
+    (state: { activeLabel?: string | number; activePayload?: unknown }) => {
+      if (!interactive) return;
+      const moment = Number(
+        state.activeLabel ?? (state.activePayload as { time?: number })?.time,
+      );
+      if (Number.isFinite(moment)) seek(moment);
+    },
+    [interactive, seek],
+  );
+
   if (data.length === 0) {
     return (
       <Panel className="flex items-center justify-center p-10 text-center text-[13px] text-ink-faint">
@@ -44,12 +91,6 @@ export function QueueChart({
       </Panel>
     );
   }
-  const peak = data.reduce((best, sample) => (sample.queue > best.queue ? sample : best), data[0]);
-  const handleChartClick = (state: { activeLabel?: string | number; activePayload?: unknown }) => {
-    if (!interactive) return;
-    const moment = Number(state.activeLabel ?? (state.activePayload as { time?: number })?.time);
-    if (Number.isFinite(moment)) seek(moment);
-  };
   return (
     <Panel className="px-2 pb-2 pt-3">
       <ResponsiveContainer width="100%" height={height}>
@@ -69,7 +110,7 @@ export function QueueChart({
           <XAxis
             dataKey="time"
             type="number"
-            domain={[0, data[data.length - 1].time]}
+            domain={[0, lastTime]}
             tickFormatter={formatTimecode}
             tickCount={7}
           />
@@ -84,17 +125,14 @@ export function QueueChart({
               fontFamily: "ui-monospace, monospace",
             }}
           />
-          {showEvents &&
-            events
-              .filter((event) => event.kind === "peak")
-              .map((event) => (
-                <ReferenceLine
-                  key={`${event.kind}-${event.time}`}
-                  x={event.time}
-                  stroke="#b45309"
-                  strokeDasharray="3 3"
-                />
-              ))}
+          {peakMarks.map((mark) => (
+            <ReferenceLine
+              key={mark.key}
+              x={mark.time}
+              stroke="#b45309"
+              strokeDasharray="3 3"
+            />
+          ))}
           <Area
             type="monotone"
             dataKey="queue"
@@ -104,7 +142,7 @@ export function QueueChart({
             fill="url(#queueFill)"
             isAnimationActive={false}
           />
-          {interactive && cursorTime !== undefined && cursorTime <= data[data.length - 1].time && (
+          {interactive && cursorTime !== undefined && cursorTime <= lastTime && (
             <ReferenceLine
               x={cursorTime}
               stroke="#14161a"
@@ -117,17 +155,19 @@ export function QueueChart({
               }}
             />
           )}
-          <ReferenceLine
-            y={peak.queue}
-            stroke="#14161a"
-            strokeDasharray="4 4"
-            label={{
-              value: `peak ${peak.queue}`,
-              position: "insideStart",
-              fontSize: 10,
-              fill: "#14161a",
-            }}
-          />
+          {peak && (
+            <ReferenceLine
+              y={peak.queue}
+              stroke="#14161a"
+              strokeDasharray="4 4"
+              label={{
+                value: `peak ${peak.queue}`,
+                position: "insideStart",
+                fontSize: 10,
+                fill: "#14161a",
+              }}
+            />
+          )}
         </AreaChart>
       </ResponsiveContainer>
     </Panel>

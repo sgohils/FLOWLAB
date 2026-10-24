@@ -1,0 +1,109 @@
+# FLOWLAB - Docker build context exclusions.
+#
+# WHY THIS FILE IS AT THE REPOSITORY ROOT
+# ---------------------------------------
+# Docker reads exactly ONE ignore file per build: `<context root>/.dockerignore`.
+# There is no recursive search, so a `backend/.dockerignore` is inert whenever
+# the context is anything other than ./backend - which is why backend/.dockerignore
+# sat unused while the whole checkout was uploaded.
+#
+# Two builds exist, and this file applies to only one of them:
+#
+#   1. the `backend` service: context `.`, dockerfile `backend/Dockerfile`.
+#      THIS is the file Docker reads.  backend/Dockerfile needs, from the root:
+#        frontend/package.json      - node stage, `npm ci` layer
+#        frontend/package-lock.json - ditto; without it `npm ci` fails
+#        frontend/**                - `COPY frontend/ ./`, then `npm run build`
+#        backend/requirements.txt   - `COPY ... ; pip install -r`
+#        backend/**                 - `COPY backend ./backend` (the app + demo JSON)
+#        README.md                  - `COPY README.md ./`
+#      Nothing below may exclude any of those paths.
+#
+#   2. the `frontend` dev service: context `./frontend`, dockerfile `Dockerfile`.
+#      Its context root is frontend/, so Docker reads frontend/.dockerignore and
+#      NOT this file.  The dev image is unaffected by anything here.
+#
+# Docker is not installed on the machine this file was written on, so this list
+# is justified by reading both Dockerfiles rather than by a successful build.
+# Re-verify with `docker compose build backend` after changing it.
+#
+# Later patterns win, so a negation always comes after the rule it undoes.
+
+# --- never ship a virtualenv -----------------------------------------------
+# An empty or half-built .venv is still megabytes of irrelevant context.
+.venv
+**/.venv
+venv
+**/venv
+
+# --- node ------------------------------------------------------------------
+**/node_modules
+npm-debug.log*
+yarn-error.log*
+
+# --- git -------------------------------------------------------------------
+.git
+**/.git
+.gitignore
+.gitattributes
+
+# --- local data and weights ------------------------------------------------
+# uploads, annotated videos, the SQLite database and the YOLO checkpoint are
+# all host state; the image downloads the checkpoint on first use.
+data
+**/data
+*.pt
+**/*.pt
+models
+
+# --- python build artefacts -------------------------------------------------
+__pycache__
+**/__pycache__
+**/*.py[cod]
+**/*.pyd
+.mypy_cache
+.ruff_cache
+.pytest_cache
+**/.pytest_cache
+.coverage
+coverage.xml
+htmlcov
+*.egg-info
+**/*.egg-info
+
+# --- frontend build output --------------------------------------------------
+# The backend image builds dist inside the node stage and copies it from
+# there; a stale host dist in the context only masks that build.
+frontend/dist
+**/dist
+**/.vite
+**/*.tsbuildinfo
+
+# --- repository furniture ---------------------------------------------------
+.kilo
+.idea
+.vscode
+.editorconfig
+.pre-commit-config.yaml
+.github
+docs
+run.bat
+run.sh
+docker-compose.yml
+pyproject.toml
+CONTRIBUTING.md
+*.log
+**/*.log
+
+# Not needed to serve the API, and nothing in the runtime import graph reaches
+# them (only backend/tests imports backend/scripts).
+backend/tests
+backend/scripts
+backend/validation
+backend/Dockerfile
+backend/.dockerignore
+
+# KEEP: `COPY README.md ./` in backend/Dockerfile fails without this line, and
+# it is listed last because later patterns win, which is what keeps it working
+# if a broad `*.md` is ever added above.
+!README.md

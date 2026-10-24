@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from pydantic import BaseModel
 
 from ..models.schemas import Scenario, SimulationResult
 from ..simulation.simulator import run_scenario
+from .errors import api_error
 from .state import DEMO_ID, load_analysis
 
 logger = logging.getLogger(__name__)
@@ -26,15 +27,15 @@ async def simulate(analysis_id: str, payload: ScenarioRequest) -> SimulationResu
     """Run one scenario.  The model is deterministic, so results repeat exactly."""
     analysis = load_analysis(analysis_id)
     if analysis is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
+        raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
     if not analysis.arrivals:
-        raise HTTPException(
+        raise api_error(
             status.HTTP_400_BAD_REQUEST,
             "This analysis has no vehicle arrivals, so there is nothing to simulate. "
             "Define an entry line, or upload a clip that contains moving vehicles.",
         )
     if analysis.analysis_id != DEMO_ID and analysis.summary.vehicles_tracked == 0:
-        raise HTTPException(
+        raise api_error(
             status.HTTP_400_BAD_REQUEST,
             "No vehicles were tracked in this analysis, so no arrival pattern could be "
             "measured. Try different footage.",
@@ -42,7 +43,7 @@ async def simulate(analysis_id: str, payload: ScenarioRequest) -> SimulationResu
     try:
         return await asyncio.to_thread(run_scenario, analysis, payload.scenario)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise api_error(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.get("/analyses/{analysis_id}/simulation/presets", response_model=list[Scenario])

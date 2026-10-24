@@ -9,37 +9,11 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { api } from "../api/client";
-
-/** One vehicle's position history, split where tracking was lost. */
-export interface TimelineSegment {
-  t: number[];
-  x: number[];
-  y: number[];
-}
-
-export interface TimelineVehicle {
-  id: number;
-  class: string;
-  queue_seconds: number;
-  stopped_seconds: number;
-  segments: TimelineSegment[];
-}
-
-export interface Timeline {
-  duration: number;
-  hz: number;
-  sampling_fps: number;
-  gap_threshold_s: number;
-  track_gaps: number;
-  vehicles: TimelineVehicle[];
-  queue: { t: number; q: number }[];
-  vehicles_omitted: number;
-  note: string;
-}
+import type { TimelinePayload } from "../types";
 
 interface ReplayValue {
   /** Timeline payload, or null while loading. */
-  timeline: Timeline | null;
+  timeline: TimelinePayload | null;
   loading: boolean;
   error: string | null;
   /** Current playback position in seconds. */
@@ -49,6 +23,13 @@ interface ReplayValue {
   rate: number;
   /** True when there is no source video: the transport drives the clock. */
   replayOnly: boolean;
+  /**
+   * True when the clip has more vehicles than the map can draw as live dots.
+   * A consumer that would otherwise draw one marker per vehicle uses this to
+   * draw a bounded sample instead - and says in its own interface that it has
+   * done so, because a quietly half-drawn map reads as a broken map.
+   */
+  manyVehicles: boolean;
   seek: (moment: number) => void;
   /** Report the video's own clock back to the shared timeline. */
   reportTime: (moment: number) => void;
@@ -72,6 +53,65 @@ const ReplayContext = createContext<ReplayValue | null>(null);
 /** Above this many vehicles the live dots are limited to the selection. */
 const MANY_VEHICLES = 120;
 
+/**
+ * Position of a vehicle at `time`, or null when it is unknown.
+ *
+ * A track that was lost comes back as several segments, and the position
+ * between two segments is genuinely unknown: the vehicle is hidden there
+ * rather than drawn somewhere invented.  Inside one segment the samples are
+ * uniform in time, so a binary search finds the bracketing pair and the
+ * position is linearly interpolated.
+ */
+export function positionAt(
+  timeline: TimelinePayload,
+  vehicleId: number,
+  time: number,
+): { x: number; y: number } | null {
+  const vehicle = timeline.vehicles.find((item) => item.id === vehicleId);
+  if (!vehicle) return null;
+  for (const segment of vehicle.segments) {
+    const times = segment.t;
+    if (times.length === 0) continue;
+    if (time < times[0] || time > times[times.length - 1]) continue;
+    // Binary search for the bracketing pair.
+    let low = 0;
+    let high = times.length - 1;
+    while (low < high - 1) {
+      const middle = (low + high) >> 1;
+      if (times[middle] <= time) low = middle;
+      else high = middle;
+    }
+    const span = times[high] - times[low];
+    const fraction = span <= 0 ? 0 : (time - times[low]) / span;
+    return {
+      x: segment.x[low] + fraction * (segment.x[high] - segment.x[low]),
+      y: segment.y[low] + fraction * (segment.y[high] - segment.y[low]),
+    };
+  }
+  // No segment covers this instant: the track was lost here.
+  return null;
+}
+
+/**
+ * Queue length at the nearest sampled instant, or null when there is no sample
+ * to read.
+ *
+ * The series itself is built by the backend's `build_timeline`, which starts it
+ * at t = 0, so in practice this branch only guards a payload that does not.
+ * Before the first sample the queue is genuinely unknown, so it reads as
+ * nothing rather than as a confident zero.
+ */
+export function queueAt(timeline: TimelinePayload, time: number): number | null {
+  if (!timeline.queue.length) return null;
+  if (time < timeline.queue[0].t) return null;
+  let best = timeline.queue[0];
+  for (const sample of timeline.queue) {
+    if (Math.abs(sample.t - time) < Math.abs(best.t - time)) best = sample;
+    if (sample.t > time) break;
+  }
+  return best.q;
+}
+
 export function ReplayProvider({
   analysisId,
   hasVideo,
@@ -81,7 +121,7 @@ export function ReplayProvider({
   hasVideo: boolean;
   children: ReactNode;
 }) {
-  const [timeline, setTimeline] = useState<Timeline | null>(null);
+  const [timeline, setTimeline] = useState<TimelinePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [time, setTime] = useState(0);
@@ -195,47 +235,27 @@ export function ReplayProvider({
     [seek, time],
   );
 
-  const positionAt = useCallback(
-    (vehicleId: number) => {
-      if (!timeline) return null;
-      const vehicle = timeline.vehicles.find((item) => item.id === vehicleId);
-      if (!vehicle) return null;
-      for (const segment of vehicle.segments) {
-        const times = segment.t;
-        if (times.length === 0) continue;
-        if (time < times[0] || time > times[times.length - 1]) continue;
-        // Binary search for the bracketing pair.
-        let low = 0;
-        let high = times.length - 1;
-        while (low < high - 1) {
-          const middle = (low + high) >> 1;
-          if (times[middle] <= time) low = middle;
-          else high = middle;
-        }
-        const span = times[high] - times[low];
-        const fraction = span <= 0 ? 0 : (time - times[low]) / span;
-        return {
-          x: segment.x[low] + fraction * (segment.x[high] - segment.x[low]),
-          y: segment.y[low] + fraction * (segment.y[high] - segment.y[low]),
-        };
-      }
-      // No segment covers this instant: the track was lost here.
-      return null;
-    },
+  const position = useCallback(
+    (vehicleId: number) => (timeline ? positionAt(timeline, vehicleId, time) : null),
     [timeline, time],
   );
 
-  const queueAt = useMemo(() => {
-    if (!timeline || !timeline.queue.length) return null;
-    let best = timeline.queue[0];
-    for (const sample of timeline.queue) {
-      if (Math.abs(sample.t - time) < Math.abs(best.t - time)) best = sample;
-      if (sample.t > time) break;
-    }
-    return best.q;
-  }, [timeline, time]);
+  const queueValue = useMemo(
+    () => (timeline ? queueAt(timeline, time) : null),
+    [timeline, time],
+  );
 
-  const value = useMemo(
+  const registerVideo = useCallback(
+    (element: HTMLVideoElement | null) => {
+      videoRef.current = element;
+      if (element) element.playbackRate = rate;
+    },
+    [rate],
+  );
+
+  // Annotated as ReplayValue so a field that is added to the value but not to
+  // the interface is a compile error rather than a silently ignored export.
+  const value = useMemo<ReplayValue>(
     () => ({
       timeline,
       loading,
@@ -245,23 +265,20 @@ export function ReplayProvider({
       playing,
       rate,
       replayOnly: !hasVideo,
+      manyVehicles: (timeline?.vehicles.length ?? 0) > MANY_VEHICLES,
       seek,
       reportTime,
       setPlaying,
       toggle,
       setRate: setRateSafe,
       step,
-      positionAt,
-      queueAt,
+      positionAt: position,
+      queueAt: queueValue,
       selectedVehicleId,
       selectVehicle: setSelectedVehicleId,
       selectedBottleneckId,
       selectBottleneck: setSelectedBottleneckId,
-      registerVideo: (element: HTMLVideoElement | null) => {
-        videoRef.current = element;
-        if (element) element.playbackRate = rate;
-      },
-      manyVehicles: (timeline?.vehicles.length ?? 0) > MANY_VEHICLES,
+      registerVideo,
     }),
     [
       timeline,
@@ -277,10 +294,11 @@ export function ReplayProvider({
       toggle,
       setRateSafe,
       step,
-      positionAt,
-      queueAt,
+      position,
+      queueValue,
       selectedVehicleId,
       selectedBottleneckId,
+      registerVideo,
     ],
   );
 

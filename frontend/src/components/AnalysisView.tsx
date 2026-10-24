@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { BottleneckPanel } from "../components/BottleneckPanel";
 import { EventTimeline } from "../components/EventTimeline";
+import { EvidencePanel } from "../components/EvidencePanel";
 import { MetricCard } from "../components/MetricCard";
 import { QueueChart } from "../components/QueueChart";
 import { ReplayTransport } from "../components/ReplayTransport";
@@ -8,9 +9,16 @@ import { RegionEditor, staleNotice } from "../components/RegionEditor";
 import { TrafficMap } from "../components/TrafficMap";
 import { VideoViewer } from "../components/VideoViewer";
 import type { DrawTool } from "../components/VideoViewer";
-import { Button, Label, Panel, Section } from "../components/Primitives";
+import { Button, Label, Panel, Row, Section } from "../components/Primitives";
+import type { MetricEvidence } from "./MetricCard";
 import type { Analysis, Regions } from "../types";
-import { formatNumber, formatSeconds } from "../utils/format";
+import { hasQueueRegion } from "../types";
+import {
+  formatNumber,
+  formatSeconds,
+  formatWithUnit,
+  vehicleLabel,
+} from "../utils/format";
 
 interface AnalysisViewProps {
   analysis: Analysis;
@@ -66,6 +74,38 @@ export function AnalysisView({
     [analysis],
   );
 
+  // Reasons a measurement could not be made.  "Unavailable" is stated, never a
+  // zero, and the control that could explain it is hidden rather than shown
+  // empty.
+  const reasons = useMemo(() => {
+    const noTracks = summary.vehicles_tracked === 0;
+    const noRegion = !hasQueueRegion(analysis.regions);
+    return {
+      peak: noTracks
+        ? "No vehicles were detected, so no queue could be measured."
+        : noRegion
+          ? "No queue region is drawn, so the queue cannot be measured."
+          : undefined,
+      wait: noTracks
+        ? "No vehicles were detected."
+        : noRegion
+          ? "No queue region is drawn."
+          : summary.completed_queue_visits === 0
+            ? `No completed visit: ${summary.censored_queue_visits} visit(s) were still open when the clip ended.`
+            : undefined,
+      throughput: noTracks
+        ? "No vehicles were detected."
+        : !analysis.regions.exit || analysis.regions.exit.length !== 2
+          ? "No exit line is drawn, so departures cannot be counted."
+          : undefined,
+      region: noTracks
+        ? "No vehicles were detected."
+        : noRegion
+          ? "No queue region is drawn."
+          : undefined,
+    };
+  }, [summary, analysis.regions]);
+
   return (
     <>
       <div className="mb-6">
@@ -97,6 +137,7 @@ export function AnalysisView({
             emphasis={(summary.peak_queue ?? 0) > 0}
             caption="most vehicles in the region and below the speed threshold at once"
             evidence={evidence.peak}
+            unavailableReason={reasons.peak}
           />
           <MetricCard
             label="Average queue"
@@ -104,6 +145,7 @@ export function AnalysisView({
             unit="vehicles"
             approximate
             caption="time-average over the whole clip"
+            unavailableReason={reasons.peak}
           />
           <MetricCard
             label="Est. wait (mean)"
@@ -115,6 +157,7 @@ export function AnalysisView({
               0,
             )} censored`}
             evidence={evidence.wait}
+            unavailableReason={reasons.wait}
           />
           <MetricCard
             label="Est. wait (max)"
@@ -123,6 +166,7 @@ export function AnalysisView({
             approximate
             caption={`median ${formatNumber(summary.median_wait_seconds)}s of completed visits`}
             evidence={evidence.wait}
+            unavailableReason={reasons.wait}
           />
           <MetricCard
             label="Throughput"
@@ -134,6 +178,7 @@ export function AnalysisView({
                 : "no entry line defined"
             }
             evidence={evidence.throughput}
+            unavailableReason={reasons.throughput}
           />
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -148,6 +193,7 @@ export function AnalysisView({
             unit="s"
             approximate
             caption="inside the queue region, moving or not"
+            unavailableReason={reasons.region}
           />
           <MetricCard
             label="Mean slow time"
@@ -155,6 +201,7 @@ export function AnalysisView({
             unit="s"
             approximate
             caption="below the threshold anywhere in the scene"
+            unavailableReason={reasons.region}
           />
           <MetricCard
             label="Time with a queue"
@@ -304,51 +351,75 @@ export function AnalysisView({
         title="How this analysis was measured"
         subtitle="Every assumption the numbers depend on."
       >
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Panel className="p-5">
-            <Label>Digital twin calibration</Label>
-            <dl className="mt-3 space-y-1.5 text-[13px]">
-              <Row label="Arrival rate" value={`${formatNumber(analysis.calibration.arrival_rate_per_minute)} /min`} />
-              <Row label="Mean arrival headway" value={`${formatNumber(analysis.calibration.mean_arrival_headway_seconds)} s`} />
-              <Row label="Exit service time" value={`${formatNumber(analysis.calibration.service_time_seconds)} s`} />
-              <Row label="Free-flow travel time" value={`${formatNumber(analysis.calibration.free_flow_seconds)} s`} />
-              <Row label="Mean traversal" value={`${formatNumber(analysis.calibration.mean_traversal_seconds)} s`} />
-            </dl>
-            <ul className="mt-3 space-y-1 text-[11px] leading-relaxed text-ink-faint">
-              {analysis.calibration.notes.map((note) => (
-                <li key={note}>— {note}</li>
-              ))}
-            </ul>
-          </Panel>
-          <Panel className="p-5">
-            <Label>Definitions used</Label>
-            <ul className="mt-3 space-y-2 text-[12px] leading-relaxed text-ink-soft">
-              <li>
-                <b className="text-ink">Queue length</b> = number of tracked vehicles
-                simultaneously inside the queue region and below the motion threshold,
-                held for at least {analysis.regions.min_queue_seconds}s (sampled at{" "}
-                {analysis.regions.sample_fps} fps).
-              </li>
-              <li>
-                <b className="text-ink">Estimated wait</b> = time inside the queue region
-                while slow, for visits that both started and ended inside the clip.
-                Censored visits are counted separately and excluded.
-              </li>
-              <li>
-                <b className="text-ink">Time in region</b> = time inside the queue region
-                whether or not the vehicle was moving.
-              </li>
-              <li>
-                <b className="text-ink">Throughput</b> = exit-line crossings divided by
-                the clip duration in minutes, counting each vehicle once.
-              </li>
-              <li>
-                <b className="text-ink">Stopped</b> = motion below{" "}
-                {analysis.regions.speed_threshold} frame-widths per second for at least{" "}
-                {analysis.regions.min_stop_seconds}s.
-              </li>
-            </ul>
-          </Panel>
+        <div className="space-y-4">
+          <EvidencePanel analysis={analysis} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Panel className="p-5">
+              <Label>Digital twin calibration</Label>
+              <dl className="mt-3 space-y-1.5 text-[13px]">
+                <Row
+                  label="Arrival rate"
+                  value={formatWithUnit(
+                    analysis.calibration.arrival_rate_per_minute,
+                    "/min",
+                  )}
+                />
+                <Row
+                  label="Mean arrival headway"
+                  value={formatWithUnit(
+                    analysis.calibration.mean_arrival_headway_seconds,
+                    "s",
+                  )}
+                />
+                <Row
+                  label="Exit service time"
+                  value={formatWithUnit(analysis.calibration.service_time_seconds, "s")}
+                />
+                <Row
+                  label="Free-flow travel time"
+                  value={formatWithUnit(analysis.calibration.free_flow_seconds, "s")}
+                />
+                <Row
+                  label="Mean traversal"
+                  value={formatWithUnit(analysis.calibration.mean_traversal_seconds, "s")}
+                />
+              </dl>
+              <ul className="mt-3 space-y-1 text-[11px] leading-relaxed text-ink-faint">
+                {analysis.calibration.notes.map((note) => (
+                  <li key={note}>— {note}</li>
+                ))}
+              </ul>
+            </Panel>
+            <Panel className="p-5">
+              <Label>Definitions used</Label>
+              <ul className="mt-3 space-y-2 text-[12px] leading-relaxed text-ink-soft">
+                <li>
+                  <b className="text-ink">Queue length</b> = number of tracked vehicles
+                  simultaneously inside the queue region and below the motion threshold,
+                  held for at least {analysis.regions.min_queue_seconds}s (sampled at{" "}
+                  {analysis.regions.sample_fps} fps).
+                </li>
+                <li>
+                  <b className="text-ink">Estimated wait</b> = time inside the queue region
+                  while slow, for visits that both started and ended inside the clip.
+                  Censored visits are counted separately and excluded.
+                </li>
+                <li>
+                  <b className="text-ink">Time in region</b> = time inside the queue region
+                  whether or not the vehicle was moving.
+                </li>
+                <li>
+                  <b className="text-ink">Throughput</b> = exit-line crossings divided by
+                  the clip duration in minutes, counting each vehicle once.
+                </li>
+                <li>
+                  <b className="text-ink">Stopped</b> = motion below{" "}
+                  {analysis.regions.speed_threshold} frame-widths per second for at least{" "}
+                  {analysis.regions.min_stop_seconds}s.
+                </li>
+              </ul>
+            </Panel>
+          </div>
         </div>
       </Section>
     </>
@@ -357,20 +428,16 @@ export function AnalysisView({
 
 /* ------------------------------------------------------------------ evidence */
 
-function whyPeakQueue(analysis: Analysis): { formula: string; rows: [string, string][]; note: string } {
+function whyPeakQueue(analysis: Analysis): MetricEvidence {
   const peak = analysis.summary.peak_queue ?? 0;
   const events = analysis.events.filter((event) => event.kind === "peak");
-  const atPeak = new Set<string>();
-  for (const sample of analysis.queue_timeseries) {
-    if (sample.queue === peak && peak > 0) atPeak.add(sample.time.toFixed(2));
-  }
   return {
     formula: "Q_peak = max over t of (vehicles inside the queue region and below the speed threshold)",
     rows: [
-      ["Peak value", `${peak} vehicles`],
-      ["First reached at", events[0] ? `${events[0].time.toFixed(2)} s` : "never"],
-      ["Observation window", `${analysis.video.duration.toFixed(1)} s`],
-      ["Grid resolution", `1/${analysis.regions.sample_fps} s`],
+      ["Peak value", formatWithUnit(peak, "vehicles", 0)],
+      ["First reached at", events[0] ? formatWithUnit(events[0].time, "s", 2) : "never"],
+      ["Observation window", formatWithUnit(analysis.video.duration, "s")],
+      ["Grid resolution", `1/${formatNumber(analysis.regions.sample_fps)} s`],
       ["Region", analysis.regions.queue.length >= 3 ? "user drawn" : "not defined"],
     ],
     note:
@@ -380,7 +447,7 @@ function whyPeakQueue(analysis: Analysis): { formula: string; rows: [string, str
   };
 }
 
-function whyWait(analysis: Analysis): { formula: string; rows: [string, string][]; note: string } {
+function whyWait(analysis: Analysis): MetricEvidence {
   const complete = analysis.queue_visits.filter((visit) => visit.complete);
   const censored = analysis.queue_visits.filter((visit) => !visit.complete);
   const longest = complete.reduce(
@@ -390,15 +457,15 @@ function whyWait(analysis: Analysis): { formula: string; rows: [string, string][
   return {
     formula: "W = t_leave − t_enter for each queue visit; the card shows the mean and the maximum over completed visits",
     rows: [
-      ["Completed visits", String(complete.length)],
-      ["Censored (excluded)", String(censored.length)],
+      ["Completed visits", formatNumber(complete.length, 0)],
+      ["Censored (excluded)", formatNumber(censored.length, 0)],
       [
         "Longest completed visit",
         longest?.duration
-          ? `Vehicle ${String(longest.vehicle_id).padStart(3, "0")}, ${longest.duration.toFixed(1)} s`
+          ? `${vehicleLabel(longest.vehicle_id)}, ${formatWithUnit(longest.duration, "s")}`
           : "none",
       ],
-      ["Minimum qualifying stay", `${analysis.regions.min_queue_seconds} s`],
+      ["Minimum qualifying stay", formatWithUnit(analysis.regions.min_queue_seconds, "s")],
     ],
     note:
       censored.length > 0
@@ -407,13 +474,13 @@ function whyWait(analysis: Analysis): { formula: string; rows: [string, string][
   };
 }
 
-function whyThroughput(analysis: Analysis): { formula: string; rows: [string, string][]; note: string } {
+function whyThroughput(analysis: Analysis): MetricEvidence {
   return {
     formula: "Q = N / Δt where N is vehicles crossing the exit line (each counted once) and Δt is the clip length in minutes",
     rows: [
-      ["Exit crossings", String(analysis.summary.vehicles_processed)],
-      ["Observation window", `${(analysis.video.duration / 60).toFixed(2)} min`],
-      ["Entry crossings", String(analysis.arrivals.length)],
+      ["Exit crossings", formatNumber(analysis.summary.vehicles_processed, 0)],
+      ["Observation window", formatWithUnit(analysis.video.duration / 60, "min", 2)],
+      ["Entry crossings", formatNumber(analysis.arrivals.length, 0)],
       [
         "Counting policy",
         analysis.regions.exit_direction === "forward" ? "forward crossings only" : "either direction",
@@ -423,14 +490,3 @@ function whyThroughput(analysis: Analysis): { formula: string; rows: [string, st
       "The whole clip is the window, so a clip that starts and ends with a queue reports a lower rate than the instantaneous rate in the middle.",
   };
 }
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-ink-faint">{label}</dt>
-      <dd className="font-mono text-ink">{value}</dd>
-    </div>
-  );
-}
-
-

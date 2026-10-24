@@ -8,9 +8,14 @@ redraw regions on a resized player without breaking anything.
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+#: Geometry primitives live in ``backend.geometry`` so this module can validate
+#: a region without importing ``backend.analytics`` (which imports this module).
+from ..geometry import polygon_area
 
 Coordinate = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
 Point = tuple[Coordinate, Coordinate]
@@ -18,6 +23,9 @@ Point = tuple[Coordinate, Coordinate]
 Source = Literal["video", "demo"]
 RegionKind = Literal["queue", "entry", "exit", "conflict"]
 CrossingDirection = Literal["any", "forward"]
+#: The four states a processing job can be in.  The database column is free-form
+#: TEXT, so the API maps it onto this set explicitly instead of trusting it.
+JobState = Literal["queued", "processing", "complete", "error"]
 
 #: Smallest region FLOWLAB will accept, as a fraction of the frame area.
 #: Below this, a handful of detector samples decide the whole metric.
@@ -30,7 +38,7 @@ def _has_repeated_vertices(points: list[Point]) -> bool:
     if ordered[0] == ordered[-1]:
         # A repeated closing point is redundant rather than degenerate.
         ordered = ordered[:-1]
-    return any(a == b for a, b in zip(ordered, ordered[1:]))
+    return any(a == b for a, b in pairwise(ordered))
 
 
 def _is_self_intersecting(points: list[Point]) -> bool:
@@ -53,9 +61,7 @@ def _is_self_intersecting(points: list[Point]) -> bool:
 
         d1, d2 = orient(p3, p4, p1), orient(p3, p4, p2)
         d3, d4 = orient(p1, p2, p3), orient(p1, p2, p4)
-        if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
-            return True
-        return False
+        return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
 
     for i in range(count):
         a1, a2 = points[i], points[(i + 1) % count]
@@ -97,7 +103,7 @@ class Regions(BaseModel):
     auto_detected: bool = False
 
     @model_validator(mode="after")
-    def check_geometry(self) -> "Regions":
+    def check_geometry(self) -> Regions:
         if self.queue and len(self.queue) < 3:
             raise ValueError("A queue region needs at least three points.")
         if self.conflict and len(self.conflict) < 3:
@@ -130,16 +136,6 @@ class Regions(BaseModel):
     @property
     def has_queue(self) -> bool:
         return len(self.queue) >= 3
-
-
-def polygon_area(points: list[Point] | list[tuple[float, float]]) -> float:
-    """Shoelace area of a closed polygon (positive value)."""
-    if len(points) < 3:
-        return 0.0
-    total = 0.0
-    for (x1, y1), (x2, y2) in zip(points, list(points[1:]) + [points[0]]):
-        total += x1 * y2 - x2 * y1
-    return abs(total) / 2.0
 
 
 class VideoInfo(BaseModel):
@@ -281,6 +277,36 @@ class HeatCell(BaseModel):
     vehicle_passes: int
 
 
+class Evidence(BaseModel):
+    """The facts a reader needs before trusting the numbers.
+
+    Everything here is a count or a derived share, never a score: there is no
+    "confidence" figure, because none has been computed.  Every field has a
+    default so a result stored by an older build still loads.
+    """
+
+    observation_seconds: float = 0.0
+    sampling_fps: float = 0.0
+    vehicles_detected: int = 0
+    vehicles_tracked: int = 0
+    vehicles_crossed_entry: int = 0
+    vehicles_crossed_exit: int = 0
+    completed_queue_visits: int = 0
+    censored_queue_visits: int = 0
+    censored_seconds: float = 0.0
+    registered_stops: int = 0
+    slow_seconds_total: float = 0.0
+    tracks: int = 0
+    short_fragments: int = 0
+    #: Sample-to-sample breaks longer than 2.5 sampling intervals.
+    gaps: int = 0
+    missing_sample_share: float = 0.0
+
+    @property
+    def evidence_is_thin(self) -> bool:
+        return self.vehicles_tracked < 5 or self.missing_sample_share > 0.15
+
+
 class Analysis(BaseModel):
     analysis_id: str
     source: Source
@@ -288,8 +314,14 @@ class Analysis(BaseModel):
     regions: Regions
     summary: Summary
     calibration: Calibration
+    evidence: Evidence = Field(default_factory=Evidence)
     trajectories: list[Trajectory] = Field(default_factory=list)
     queue_timeseries: list[QueueSample] = Field(default_factory=list)
+    #: Vehicles geometrically inside the queue region at each instant, ignoring
+    #: speed.  This is the quantity a human annotator can reproduce by pausing
+    #: the frame, and the validation script compares against it.
+    #: Defaulted so results stored by earlier builds still load.
+    region_occupancy_timeseries: list[QueueSample] = Field(default_factory=list)
     bottlenecks: list[Bottleneck] = Field(default_factory=list)
     heat_grid: list[HeatCell] = Field(default_factory=list)
     events: list[TrafficEvent] = Field(default_factory=list)
@@ -311,7 +343,7 @@ class StageStatus(BaseModel):
 
 class JobStatus(BaseModel):
     analysis_id: str
-    status: Literal["queued", "processing", "complete", "error"]
+    status: JobState
     stage: str
     progress: float
     stages: list[StageStatus]
@@ -397,6 +429,26 @@ class ModelFidelity(BaseModel):
     note: str
 
 
+class SensitivityPoint(BaseModel):
+    service_time_seconds: float
+    peak_queue: int
+    average_wait_seconds: float
+    throughput_per_minute: float
+    vehicles_left_at_window_end: int
+
+
+class SensitivityRange(BaseModel):
+    """Outcome of re-running the baseline under alternative service times."""
+
+    parameter: str
+    method: str
+    baseline_value: float
+    values: list[SensitivityPoint]
+    peak_queue_range: tuple[int, int]
+    average_wait_range: tuple[float, float]
+    note: str
+
+
 class SimulationResult(BaseModel):
     """Three-way comparison: A observed, B baseline model, C modified model.
 
@@ -414,6 +466,10 @@ class SimulationResult(BaseModel):
     baseline: SimulationMetrics
     simulated: SimulationMetrics
     fidelity: ModelFidelity
+    #: Sensitivity range for the one estimated parameter, exit service time.
+    #: A range of model outcomes under stated alternative values, not a
+    #: statistical confidence interval.
+    sensitivity: SensitivityRange | None = None
     deltas: list[MetricDelta]
     model_deltas: list[MetricDelta]
     observed_queue: list[QueueSample]

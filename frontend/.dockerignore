@@ -1,0 +1,23 @@
+# Docker build context exclusions for the frontend dev image.
+#
+# This image runs `vite` and bind-mounts ./src over /app/src for hot reload, so
+# node_modules is the only thing that genuinely has to be kept out - the rest is
+# a faster build and a smaller context.
+node_modules
+dist
+coverage
+.vite
+# bind-mounted by docker-compose.yml; shipping a stale copy in the image only
+# masks a broken mount
+src
+index.html
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.gitattributes
+.github
+.venv
+__pycache__
+*.pyc
+*.log

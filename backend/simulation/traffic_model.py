@@ -18,8 +18,8 @@ reported in ``Calibration.notes`` so the UI can show the assumption.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from statistics import fmean, median
-from statistics import quantiles
+from itertools import pairwise
+from statistics import fmean, median, quantiles
 
 from ..models.schemas import Calibration
 
@@ -42,7 +42,7 @@ def calibrate(
     notes: list[str] = []
     minutes = max(observation_seconds, 1e-6) / 60.0
 
-    arrival_gaps = [b - a for a, b in zip(arrival_times, arrival_times[1:]) if b - a > 0]
+    arrival_gaps = [b - a for a, b in pairwise(arrival_times) if b - a > 0]
     headway = fmean(arrival_gaps) if arrival_gaps else None
     arrival_rate = (len(arrival_times) / minutes) if arrival_times else 0.0
     if headway is None:

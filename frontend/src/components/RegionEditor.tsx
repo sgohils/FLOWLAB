@@ -9,7 +9,7 @@ const TOOLS: { key: DrawTool; label: string; help: string }[] = [
   {
     key: "queue",
     label: "Queue region",
-    help: "Click to place corners, double-click (or press Enter) to close the polygon.",
+    help: "Click to place corners, then double-click, or focus the video and press Enter, to close the polygon. Escape cancels.",
   },
   {
     key: "entry",
@@ -89,7 +89,11 @@ export function RegionEditor({
     <Panel className="space-y-4 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Label>Measure regions</Label>
-        <div className="flex flex-wrap gap-1.5">
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="group"
+          aria-label="Region drawing tool"
+        >
           {TOOLS.map((entry) => (
             <button
               key={entry.key}
@@ -114,7 +118,8 @@ export function RegionEditor({
             >
               Clear {tool}
             </button>
-          )}        </div>
+          )}
+        </div>
         {saving && (
           <span className="text-[12px] text-ink-faint" role="status">
             Recomputing metrics…
@@ -123,7 +128,20 @@ export function RegionEditor({
       </div>
 
       {tool !== "none" && (
-        <p className="text-[12px] text-ink-soft">{TOOLS.find((t) => t.key === tool)?.help}</p>
+        <>
+          {/* The selected tool is carried by colour alone, so state it in text. */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {`Selected tool: ${TOOLS.find((t) => t.key === tool)?.label ?? tool}. ${
+              TOOLS.find((t) => t.key === tool)?.help ?? ""
+            }`}
+          </p>
+          <p className="text-[12px] text-ink-soft">
+            <b className="text-ink">
+              {TOOLS.find((t) => t.key === tool)?.label ?? tool}
+            </b>{" "}
+            - {TOOLS.find((t) => t.key === tool)?.help}
+          </p>
+        </>
       )}
 
       <div className="flex flex-wrap items-end gap-2 border-t border-rule-soft pt-3">

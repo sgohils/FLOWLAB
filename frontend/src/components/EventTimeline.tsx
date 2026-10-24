@@ -13,7 +13,7 @@ export function EventTimeline({ events }: { events: TrafficEvent[] }) {
     );
   }
   return (
-    <Panel className="divide-y divide-rule-soft">
+    <Panel className="divide-y divide-rule-soft" role="group" aria-label="Threshold events">
       {events.map((event, index) => {
         const near = Math.abs(event.time - time) < 0.6;
         return (
@@ -21,6 +21,8 @@ export function EventTimeline({ events }: { events: TrafficEvent[] }) {
             key={`${event.kind}-${event.time}-${index}`}
             onClick={() => seek(event.time)}
             title={`Jump the replay to ${formatTimecode(event.time)}`}
+            aria-label={`Jump the replay to ${formatTimecode(event.time)}: ${event.label}`}
+            aria-current={near ? "true" : undefined}
             className={`flex w-full items-start gap-4 px-4 py-2.5 text-left transition-colors hover:bg-paper ${
               near ? "bg-accent-soft" : ""
             }`}
@@ -29,6 +31,7 @@ export function EventTimeline({ events }: { events: TrafficEvent[] }) {
               {formatTimecode(event.time)}
             </span>
             <span
+              aria-hidden="true"
               className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                 event.kind === "peak"
                   ? "bg-ink"

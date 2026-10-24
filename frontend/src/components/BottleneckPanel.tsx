@@ -1,6 +1,6 @@
 import type { Bottleneck, HeatCell } from "../types";
-import { formatNumber } from "../utils/format";
-import { Label, Panel } from "./Primitives";
+import { formatFixed, formatWithUnit } from "../utils/format";
+import { Label, Panel, Row } from "./Primitives";
 
 export function BottleneckPanel({
   bottlenecks,
@@ -44,18 +44,33 @@ export function BottleneckPanel({
                   className="font-mono text-[11px] text-ink-faint"
                   title="Relative ranking of this cell against the other cells. It is not a measured severity or a congestion grade."
                 >
-                  index {bottleneck.score.toFixed(2)}
+                  index {formatFixed(bottleneck.score, 2)}
                 </span>
               </div>
               <dl className="mt-3 space-y-1.5 text-[13px]">
-                <Row label="Where" value={`x ${bottleneck.x.toFixed(2)} · y ${bottleneck.y.toFixed(2)}`} />
-                <Row label="Distinct vehicles slowed" value={String(bottleneck.vehicle_passes)} />
-                <Row label="Time below threshold" value={`${formatNumber(bottleneck.stopped_seconds)} s`} />
+                <Row
+                  label="Where"
+                  value={`x ${formatFixed(bottleneck.x, 2)} · y ${formatFixed(
+                    bottleneck.y,
+                    2,
+                  )}`}
+                />
+                <Row
+                  label="Distinct vehicles slowed"
+                  value={String(bottleneck.vehicle_passes)}
+                />
+                <Row
+                  label="Time below threshold"
+                  value={formatWithUnit(bottleneck.stopped_seconds, "s")}
+                />
                 <Row
                   label="Mean per vehicle"
-                  value={`${formatNumber(bottleneck.mean_slowdown_seconds)} s`}
+                  value={formatWithUnit(bottleneck.mean_slowdown_seconds, "s")}
                 />
-                <Row label="Time in region" value={`${formatNumber(bottleneck.occupancy_seconds)} s`} />
+                <Row
+                  label="Time in region"
+                  value={formatWithUnit(bottleneck.occupancy_seconds, "s")}
+                />
               </dl>
               {onSelect && (
                 <p className="mt-2 text-[11px] text-ink-faint">
@@ -75,7 +90,7 @@ export function BottleneckPanel({
           {heat.map((cell, index) => (
             <div
               key={index}
-              title={`index ${cell.value.toFixed(2)} · ${cell.vehicle_passes} distinct vehicles`}
+              title={`index ${formatFixed(cell.value, 2)} · ${cell.vehicle_passes} distinct vehicles`}
               className="aspect-[4/3] rounded-[2px] border border-rule-soft"
               style={{
                 backgroundColor: `rgba(180, 83, 9, ${(cell.value / worst) * 0.75})`,
@@ -93,15 +108,6 @@ export function BottleneckPanel({
           slowed there.
         </p>
       </Panel>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-ink-faint">{label}</dt>
-      <dd className="font-mono text-ink">{value}</dd>
     </div>
   );
 }

@@ -1,0 +1,237 @@
+# FLOWLAB - backend tooling configuration.
+#
+# This file is the single source of truth for everything Python-side: package
+# metadata, runtime dependencies, ruff, mypy, pytest and coverage.
+#
+# `backend/requirements.txt` stays as a thin runtime pin list for
+# `pip install -r` (which is what run.bat/run.sh and the Docker image use, so a
+# checkout works without an editable install).  It carries no version bounds of
+# its own beyond mirroring the ones here, and the two files are kept in step by
+# the comment at the top of requirements.txt.
+
+[project]
+name = "flowlab"
+version = "1.0.0" # keep in sync with backend/__init__.py:__version__
+description = "Privacy-preserving school traffic digital twin: anonymous vehicle trajectories, queue measurements, bottleneck maps and scenario simulation."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "SG-925" }]
+requires-python = ">=3.11"
+# Mirrored in backend/requirements.txt - keep the two in step.
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "python-multipart>=0.0.20,<1",
+    "pydantic>=2.10,<3",
+    "numpy>=2.1,<3",
+    "opencv-python>=4.10,<6",
+    "ultralytics>=8.3,<9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "httpx>=0.28,<1",
+    "ruff>=0.13",
+    "mypy>=1.15",
+    "pytest-cov>=6",
+    "pre-commit>=4,<5",
+]
+
+# Taken verbatim from git remote -v (origin).  An author handle and a
+# repository owner are not the same thing: SG-925 is the commit author
+# named in LICENSE and in [project].authors, but the code lives under the
+# sgohils account, and a URL that 404s is worse than no URL.
+[project.urls]
+Homepage = "https://github.com/sgohils/FLOWLAB"
+Repository = "https://github.com/sgohils/FLOWLAB"
+
+# The backend is never published to an index; `flowlab` names the project, not a
+# distribution.  `pip install -e ".[dev]"` from the repository root is the
+# alternative to the two requirements files, and it puts `backend` on the path
+# exactly the way `run.bat` / `run.sh` invoke it.
+#
+# The package list is explicit because automatic discovery cannot be trusted
+# here: the repository root also holds frontend/ and docs/, and backend/demo and
+# backend/validation are data directories with no __init__.py, so discovery
+# either fails or picks up something that is not code.
+[tool.setuptools]
+packages = [
+    "backend",
+    "backend.analytics",
+    "backend.api",
+    "backend.models",
+    "backend.scripts",
+    "backend.simulation",
+    "backend.storage",
+    "backend.tests",
+    "backend.vision",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+# Intent: catch real defects and drift, not style taste.  The set below is the
+# smallest one that finds bugs we would otherwise ship:
+#
+#   E, F     pyflakes/pycodestyle basics - undefined names, unused imports,
+#            syntax-level mistakes, plus the 100 column budget that keeps the
+#            analytics modules readable side by side.
+#   I        isort.  Import order is what makes the dependency layering in
+#            CONTRIBUTING.md visible in the file itself.
+#   UP       pyupgrade.  The floor is 3.11, so `X | Y`, `dict[str, int]`,
+#            `collections.abc` imports and `zip(strict=...)` are all free.
+#   B        bugbear.  Real bug shapes: mutable defaults, shadowed loop
+#            variables, `zip()` without an explicit `strict=`, etc.
+#   C4       comprehensions - prefer a comprehension to map/filter/dict calls.
+#   SIM      simplifiable branches; mostly readability, occasionally a bug.
+#   RET      assigned-then-returned values and the "return early" family.
+#   PTH      pathlib.  The storage layer is already pathlib-based; this stops
+#            `open()` creeping back in.
+#   ARG      unused arguments.  FastAPI, the job manager and the analytics
+#            callbacks all have signature-fixed parameters; the real
+#            exceptions live in per-file-ignores rather than inline.
+#   N        naming.  PEP 8 plus a short list of allowed exceptions.
+#   RUF      the ruff-specific ones worth having: unused noqa, redundant
+#            int() casts, list concatenation that should be unpacking, and
+#            `zip(x, x[1:])` that should be `itertools.pairwise`.
+#
+# Deliberately NOT enabled: bandit (`S`) - its findings on a local-only
+# analysis tool are noise, and the rules that would matter (no shell
+# interpolation, no eval) are not where it looks.  `ANN` would demand
+# annotations on test helpers that carry no API contract.  `D` (docstrings)
+# would flag the many small helpers that are self-evident from their name.
+# The goal is a gate the team keeps switched on, not a score.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["backend"]
+extend-exclude = ["frontend", "data", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RET", "PTH", "ARG", "N", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately take arguments they do not use (monkeypatched callbacks,
+# TestClient callables) and use names pytest's fixtures reserve.
+"backend/tests/**" = ["ARG", "N", "PTH"]
+# Package markers re-export names; an unused import there is a deliberate API
+# surface, not dead code.
+"backend/**/__init__.py" = ["F401", "ARG", "N"]
+# FastAPI resolves `File(...)`/`Form(...)` from the *default value* of the
+# parameter.  B008 wants the call moved into the body, which this framework
+# cannot do; the `Annotated` form works, but rewriting every upload route is a
+# larger change than a lint fix should be.
+"backend/api/routes_upload.py" = ["B008"]
+# Starlette calls exception handlers as `handler(request, exc)` and FastAPI
+# calls the lifespan factory as `lifespan(app)`, positionally.  The arguments
+# are required by the framework and deleting one is not an option.
+"backend/main.py" = ["ARG001"]
+# Two public signatures carry an input the body no longer reads:
+#   suggest_regions(..., video, ...)  - the region suggestion is purely
+#     geometric, so the video description is unused;
+#   calibrate(..., departure_times, ...)  - superseded by
+#     `departure_capacity_headway`, which is measured from the same series.
+# Both are part of a module-level contract that callers and tests pass, so
+# removing the parameter is an interface change for the code owner to make, not
+# a lint fix.  The private helpers that had the same problem (`metrics._summary`
+# accepting `stops`, `timeline._segments_for` accepting `step`,
+# `jobs._finish` accepting `analysis`) *were* cleaned up - this is the short
+# list of what is left, and it should get shorter.
+"backend/analytics/suggestions.py" = ["ARG001"]
+"backend/simulation/traffic_model.py" = ["ARG001"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["backend/tests"]
+addopts = "-q --strict-markers"
+# Warnings are errors.  That is a gate, not a preference: a ResourceWarning
+# from an unclosed sqlite3 handle is exactly the kind of defect a suite should
+# refuse to pass over, and backend/tests/test_database.py pins the connection
+# lifetime so the fix cannot silently regress.
+#
+# Filters below apply later and therefore win over `"error"`, so each one has
+# to be narrow and justified.  There is exactly one: `fastapi.testclient`
+# imports starlette's TestClient shim, which warns at import time (inside
+# site-packages, at starlette/testclient.py) that it wants `httpx2` instead of
+# `httpx`.  There is no line in this repository to fix, so it is suppressed by
+# exact category plus message, and it will start failing the day this file is
+# bumped past the upstream fix.
+filterwarnings = [
+    "error",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated.*:starlette.exceptions.StarletteDeprecationWarning",
+]
+markers = [
+    "slow: takes more than a second or needs a real video file",
+]
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["backend"]
+branch = true
+# scripts/ is operator tooling run by hand (doctor, demo builder, validation);
+# tests/ is measured by its own assertions, not by coverage.
+omit = [
+    "backend/scripts/*",
+    "backend/tests/*",
+    "backend/validation/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    "if __name__ == .__main__.:",
+]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+# Strictness is real but bounded by what this codebase can actually meet today.
+# `check_untyped_defs` is the important one: much of the analytics layer is
+# lightly annotated, and without it mypy would skip those bodies entirely and
+# report almost nothing useful.
+#
+# `backend/scripts` is excluded: those are operator CLIs that print and exit,
+# and annotating their `main()` plumbing buys nothing.  `backend/tests` is
+# excluded for the same reason - test bodies assert on dict-shaped JSON and
+# are better served by the runtime assertions than by annotations.
+[tool.mypy]
+# python_version is 3.12, NOT the 3.11 floor in [project].  That is a
+# deliberate, tested deviation: numpy >= 2.3 ships PEP 695 `type` statements in
+# its stubs, which mypy cannot *parse* under 3.11 semantics.  With 3.11 here,
+# mypy 2.3.1 stops dead before reading a line of this codebase:
+#
+#   numpy/__init__.pyi:737: error: Type statement is only supported in
+#   Python 3.12 and greater  [syntax]   (1 error, "errors prevented further
+#   checking")
+#
+# per-module `python_version` is not an escape hatch - mypy removed it.  If you
+# want 3.11 here, pin `numpy<2.3` first; do not just change the number.
+#
+# This only sets the *assumed* language version for checking.  The package still
+# supports 3.11, and CI still runs the whole suite on 3.11, so a stray 3.12-only
+# syntax slip is caught there rather than shipped.
+python_version = "3.12"
+files = ["backend"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+pretty = true
+exclude = ["^backend/scripts/", "^backend/tests/"]

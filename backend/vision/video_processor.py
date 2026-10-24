@@ -21,7 +21,8 @@ from pathlib import Path
 
 import cv2
 
-from ..config import Settings, settings as default_settings
+from ..config import Settings
+from ..config import settings as default_settings
 from ..models.schemas import Trajectory, TrajectoryPoint, VideoInfo
 from .annotator import FrameAnnotation, build_annotation, draw_annotations
 from .detector import RawDetection, VehicleDetector
@@ -70,7 +71,7 @@ def process_video(
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        stride = max(1, int(round(source_fps / target_fps)))
+        stride = max(1, round(source_fps / target_fps))
 
         writer = _open_writer(output_path, source_fps, (width, height)) if write_video else None
         accumulator = TrackAccumulator(settings)
@@ -95,7 +96,9 @@ def process_video(
                 for detection in detections:
                     if detection.track_id is None:
                         continue
-                    history = recent.setdefault(detection.track_id, deque(maxlen=settings.trail_length))
+                    history = recent.setdefault(
+                        detection.track_id, deque(maxlen=settings.trail_length)
+                    )
                     history.append(
                         TrajectoryPoint(
                             frame=frame_index,
@@ -173,7 +176,9 @@ def process_video(
     )
 
 
-def _drawable(detections: list[RawDetection]) -> list[tuple[int, str, tuple[float, float, float, float]]]:
+def _drawable(
+    detections: list[RawDetection],
+) -> list[tuple[int, str, tuple[float, float, float, float]]]:
     return [
         (d.track_id or 0, d.class_name, (d.x1, d.y1, d.x2, d.y2))
         for d in detections
@@ -185,7 +190,9 @@ def _open_writer(path: Path | None, fps: float, size: tuple[int, int]):
     if path is None:
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    # cv2.VideoWriter.fourcc is the spelling the type stubs carry; the
+    # module-level cv2.VideoWriter_fourcc is a legacy alias with no stub.
+    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, max(1.0, fps), size)
     if not writer.isOpened():
         writer.release()

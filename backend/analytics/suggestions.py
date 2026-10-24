@@ -21,7 +21,8 @@ from collections.abc import Sequence
 from math import hypot
 from statistics import median
 
-from ..config import Settings, settings as default_settings
+from ..config import Settings
+from ..config import settings as default_settings
 from ..models.schemas import Regions, Trajectory, VideoInfo
 from .motion import segment_speed
 
@@ -138,9 +139,13 @@ def _line_through(
     projections = [dx * point.x + dy * point.y for point in positions]
     ordered = sorted(projections)
     percentile = 0.1 if first else 0.9
-    index = max(0, min(len(ordered) - 1, int(round(percentile * (len(ordered) - 1)))))
+    index = max(0, min(len(ordered) - 1, round(percentile * (len(ordered) - 1))))
     target = ordered[index]
-    band = [point for point, projection in zip(positions, projections) if abs(projection - target) <= 0.05]
+    band = [
+        point
+        for point, projection in zip(positions, projections, strict=True)
+        if abs(projection - target) <= 0.05
+    ]
     group = band or [positions[index]]
     cx = median(point.x for point in group)
     cy = median(point.y for point in group)

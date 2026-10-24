@@ -67,7 +67,7 @@ def test_build_analysis_produces_consistent_measurements():
 
 
 def test_short_fragments_are_discarded_but_counted():
-    tracks = _scene() + [make_track(99, [(0.2, 0.6), (0.3, 0.6)], step=STEP)]
+    tracks = [*_scene(), make_track(99, [(0.2, 0.6), (0.3, 0.6)], step=STEP)]
     analysis = build_analysis("test2", _video(), tracks, _regions(), min_track_points=3)
     assert analysis.summary.vehicles_detected == 7
     assert analysis.summary.vehicles_tracked == 6
@@ -132,7 +132,12 @@ def test_calibration_is_derived_from_the_scene():
 
 def test_suggested_regions_cover_the_slow_cluster():
     """The auto-detected queue region must contain the vehicles that stop."""
-    tracks = [make_track(index, drive_through(0.05, y=0.6, stop_at=0.5, stop_seconds=5.0, step=STEP), step=STEP) for index in range(1, 6)]
+    tracks = [
+        make_track(
+            index, drive_through(0.05, y=0.6, stop_at=0.5, stop_seconds=5.0, step=STEP), step=STEP
+        )
+        for index in range(1, 6)
+    ]
     suggested = suggest_regions(tracks, _video())
     assert suggested.has_queue
     from backend.analytics.geometry import point_in_polygon
@@ -151,13 +156,15 @@ def test_suggested_regions_need_more_than_one_vehicle():
 
 
 def test_suggested_lines_sit_across_the_travel_direction():
-    tracks = [make_track(index, drive_through(0.05, y=0.6, step=STEP), step=STEP) for index in range(1, 5)]
+    tracks = [
+        make_track(index, drive_through(0.05, y=0.6, step=STEP), step=STEP) for index in range(1, 5)
+    ]
     suggested = suggest_regions(tracks, _video())
     assert len(suggested.entry) == 2 and len(suggested.exit) == 2
     for line in (suggested.entry, suggested.exit):
         (x0, y0), (x1, y1) = line
         # The suggested line is perpendicular to the (horizontal) travel axis.
-        assert abs((x1 - x0)) < 1e-6
+        assert abs(x1 - x0) < 1e-6
         assert abs(y1 - y0) > 0.1
 
 
@@ -181,7 +188,8 @@ def test_remeasuring_with_new_regions_keeps_every_vehicle():
     """
     from backend.analytics.metrics import deserialise_analysis, serialise_analysis
 
-    tracks = _scene() + [
+    tracks = [
+        *_scene(),
         make_track(90, [(0.2, 0.6), (0.25, 0.6)], step=STEP),
         make_track(91, [(0.3, 0.6), (0.4, 0.6), (0.45, 0.6)], step=STEP),
     ]
@@ -203,7 +211,3 @@ def test_remeasuring_with_new_regions_keeps_every_vehicle():
     assert any("fragment" in warning for warning in second.warnings)
     assert first.summary.peak_queue and first.summary.peak_queue > 0
     assert second.summary.peak_queue == 0
-
-
-
-

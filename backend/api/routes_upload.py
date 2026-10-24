@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, UploadFile, status
 from pydantic import BaseModel
 
 from ..config import settings
@@ -29,6 +29,14 @@ QUEUE_FULL_HINT = (
     "Wait for the current analysis to finish, or restart the backend to clear the queue."
 )
 
+#: 413 as a plain number rather than ``status.HTTP_413_REQUEST_ENTITY_TOO_LARGE``:
+#: starlette renamed that constant, and the old spelling now raises a
+#: deprecation warning - which this repository's own pytest configuration turns
+#: into an error, so the size cap failed the moment a test reached it.  The
+#: replacement name does not exist on the oldest supported starlette, so the
+#: number is the one spelling that works on both ends of the range.
+PAYLOAD_TOO_LARGE = 413
+
 
 class UploadResponse(BaseModel):
     analysis_id: str
@@ -43,9 +51,10 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
     filename = safe_filename(file.filename or "video.mp4")
     if not extension_allowed(filename, settings):
         allowed = ", ".join(settings.allowed_extensions)
-        raise HTTPException(
+        raise api_error(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            f"'{Path(filename).suffix or filename}' is not a supported video format. Use: {allowed}.",
+            f"'{Path(filename).suffix or filename}' is not a supported video format. "
+            f"Use: {allowed}.",
         )
 
     analysis_id = new_id()
@@ -64,14 +73,27 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
             while chunk := await file.read(CHUNK):
                 written += len(chunk)
                 if written > settings.max_upload_bytes:
-                    handle.close()
-                    destination.unlink(missing_ok=True)
                     limit_mb = settings.max_upload_bytes // (1024 * 1024)
-                    raise HTTPException(
-                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    raise api_error(
+                        PAYLOAD_TOO_LARGE,
                         f"File is larger than the {limit_mb} MB limit.",
                     )
                 handle.write(chunk)
+    except BaseException:
+        # Anything other than a completed upload must leave nothing behind.  A
+        # disk that fills mid-write, a ClientDisconnect from `file.read()` and a
+        # cancelled request each left a half-written file in data/uploads with
+        # no database row behind it: invisible to the UI, and unreachable by
+        # delete_analysis, which walks the database.  Removing the file on the
+        # one path that cannot be forgotten is the only version of this that
+        # covers the next failure mode as well as this one.
+        #
+        # BaseException rather than Exception: asyncio.CancelledError stopped
+        # being an Exception in 3.8, and a cancelled upload is exactly the case
+        # that must not leak.  The `with` block above has already closed the
+        # handle by the time this runs, so the unlink cannot fail on Windows.
+        destination.unlink(missing_ok=True)
+        raise
     finally:
         await file.close()
 
@@ -79,7 +101,7 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
         probe = probe_video(destination, settings)
     except StorageError as exc:
         destination.unlink(missing_ok=True)
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise api_error(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     video = VideoInfo(
         filename=filename,
@@ -102,4 +124,3 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
         result_url=f"/api/analyses/{analysis_id}/result",
         message="Upload accepted. Processing has started.",
     )
-

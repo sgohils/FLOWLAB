@@ -1,11 +1,63 @@
+# --- Python ---------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- Node / frontend ------------------------------------------------------
 node_modules/
 dist/
-.venv/
-__pycache__/
-.pytest_cache/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# --- Per-student validation evidence ---------------------------------------
+# backend/validation/ holds two tracked files: README.md and template.json.
+# `mine.json` is neither - it is a copy of the template that
+# docs/VALIDATION_REPORT.md and backend/validation/README.md tell the student to
+# create and fill in.  It still carries the placeholders ("clip":
+# "REPLACE_WITH_YOUR_CLIP.mp4", "annotated_by": "YOUR NAME"), so a `git add -A`
+# would commit an unsubmitted template that reads, in the history of a
+# validation submission, like real evidence.  The file stays on disk: it is the
+# student's working copy, and the local run of the comparison script needs it.
+backend/validation/mine.json
+
+# The matching report pair that
+# `python -m backend.scripts.validate_against_reference --markdown ... --json ...`
+# writes.  One student, one clip, one report - same reasoning as mine.json, and
+# the same reason the measurement report (docs/validation-measurement.*) *is*
+# tracked: that one is generated from the bundled synthetic dataset and is part
+# of the evidence anyone can reproduce without a camera.
+docs/validation-detector.md
+docs/validation-detector.json
+
+# --- Runtime data ---------------------------------------------------------
+# Uploaded clips, annotated videos, the SQLite database and the YOLO
+# checkpoint.  All of it is local, all of it is regenerable, none of it is
+# source.  The demo dataset under backend/demo/ IS tracked: it is what makes
+# the test suite and the demo reproducible.
 data/
 *.pt
-*.log
+
+# --- Editors and logs -----------------------------------------------------
 .env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.log
 test-results/
-.vite/
+coverage/

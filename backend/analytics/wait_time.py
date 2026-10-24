@@ -44,7 +44,9 @@ def wait_statistics(episodes: Sequence[QueueEpisode]) -> WaitStats:
     complete = [episode.duration for episode in episodes if episode.complete]
     censored = [episode for episode in episodes if not episode.complete]
     if not complete:
-        return WaitStats(0, None, None, None, None, len(censored), sum(e.duration for e in censored))
+        return WaitStats(
+            0, None, None, None, None, len(censored), sum(e.duration for e in censored)
+        )
     return WaitStats(
         count=len(complete),
         average=round(fmean(complete), 2),

@@ -13,12 +13,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from ..analytics.metrics import build_analysis, serialise_analysis
 from ..analytics.suggestions import suggest_regions
-from ..config import Settings, settings as default_settings
+from ..config import Settings
+from ..config import settings as default_settings
 from ..models.schemas import (
-    Analysis,
     JobStatus,
     Regions,
     StageStatus,
@@ -29,6 +30,9 @@ from ..vision.detector import DetectorError, detector
 from ..vision.video_processor import VideoProcessingError, process_video
 
 logger = logging.getLogger(__name__)
+
+#: The four states a processing stage can be in (mirrors ``StageStatus.status``).
+StageStatusValue = Literal["pending", "active", "done", "error"]
 
 #: (key, label, start, end) - the slice of the progress bar owned by a stage.
 STAGE_DEFINITIONS: tuple[tuple[str, str, float, float], ...] = (
@@ -51,7 +55,10 @@ ERROR_HINTS: dict[str, str] = {
         "The detection model could not be loaded. Check your internet connection the "
         "first time it runs, or set FLOWLAB_MODEL to a local yolo*.pt file."
     ),
-    "video": "The video file may be damaged or use an unsupported codec. Try re-exporting it as H.264 MP4.",
+    "video": (
+        "The video file may be damaged or use an unsupported codec. "
+        "Try re-exporting it as H.264 MP4."
+    ),
     "empty": (
         "No vehicles were detected. Try footage with a fixed camera, better lighting, "
         "a visible roadway, and vehicles occupying a larger part of the frame."
@@ -168,7 +175,7 @@ class JobManager:
                 error=None,
                 hint=None,
             )
-            self._finish(analysis_id, 1.0, "Complete", analysis=analysis)
+            self._finish(analysis_id, 1.0, "Complete")
             logger.info("Analysis %s finished in %.1fs", analysis_id, time.time() - started)
         except DetectorError as exc:
             self._fail(analysis_id, str(exc), ERROR_HINTS["detector"])
@@ -204,7 +211,7 @@ class JobManager:
             self._last_written = overall
             self._db.update(analysis_id, status="processing", stage=stage, progress=overall)
 
-    def _finish(self, analysis_id: str, progress: float, message: str, analysis: Analysis) -> None:
+    def _finish(self, analysis_id: str, progress: float, message: str) -> None:
         job = self._jobs.get(analysis_id)
         if job is None:
             return
@@ -220,14 +227,14 @@ class JobManager:
 
     def _fail(self, analysis_id: str, message: str, hint: str | None) -> None:
         job = self._jobs.get(analysis_id)
-        with job.lock:
-            if job is not None:
+        if job is not None:
+            with job.lock:
                 job.status.status = "error"
                 job.status.stage = "results"
                 job.status.error = message
                 job.status.hint = hint
                 job.status.updated_at = time.time()
-                _activate_stage(job.status, "results", 1.0, message, status="error")
+                _activate_stage(job.status, "results", 1.0, message, status_value="error")
         self._db.update(analysis_id, status="error", error=message, hint=hint)
 
 
@@ -255,7 +262,7 @@ def _activate_stage(
     stage: str,
     progress: float,
     detail: str | None,
-    status_value: str = "active",
+    status_value: StageStatusValue = "active",
 ) -> None:
     """Move the highlight to ``stage`` and close every earlier stage."""
     found = False
@@ -291,16 +298,4 @@ def _merge_regions(user: Regions, suggested: Regions) -> Regions:
             "exit": exit_line,
             "auto_detected": not (user.queue and user.exit),
         }
-    )
-
-
-def recompute_with_regions(analysis: Analysis, regions: Regions) -> Analysis:
-    """Re-measure a stored analysis with new regions (no re-detection)."""
-    return build_analysis(
-        analysis_id=analysis.analysis_id,
-        video=analysis.video,
-        tracks=analysis.trajectories,
-        regions=regions,
-        source=analysis.source,
-        created_at=analysis.created_at,
     )

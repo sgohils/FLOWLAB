@@ -12,11 +12,11 @@ import tempfile
 os.environ.setdefault("FLOWLAB_DATA_DIR", tempfile.mkdtemp(prefix="flowlab-tests-"))
 os.environ.setdefault("FLOWLAB_MIN_TRACK_POINTS", "3")
 
-import cv2  # noqa: E402
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
+import cv2
+import numpy as np
+import pytest
 
-from backend.models.schemas import Regions, Trajectory, TrajectoryPoint  # noqa: E402
+from backend.models.schemas import Regions, Trajectory, TrajectoryPoint
 
 #: A queue region covering the middle of the frame.
 QUEUE_REGION = [(0.30, 0.30), (0.90, 0.30), (0.90, 0.95), (0.30, 0.95)]
@@ -47,7 +47,12 @@ def make_points(
                 x=round(x, 5),
                 y=round(y, 5),
                 confidence=0.9,
-                bbox=[round(x - 0.02, 5), round(y - 0.02, 5), round(x + 0.02, 5), round(y + 0.02, 5)],
+                bbox=[
+                    round(x - 0.02, 5),
+                    round(y - 0.02, 5),
+                    round(x + 0.02, 5),
+                    round(y + 0.02, 5),
+                ],
                 speed=round(speed, 5),
             )
         )

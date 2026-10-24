@@ -3,7 +3,8 @@
 Not part of the product: it exists so a developer with any long traffic video
 can produce a 20 second clip that runs through the pipeline in seconds.
 
-    python -m backend.scripts.make_test_clip input.mp4 output.mp4 --start 20 --seconds 10 --slowdown 2
+    python -m backend.scripts.make_test_clip input.mp4 output.mp4 \\
+        --start 20 --seconds 10 --slowdown 2
 """
 
 from __future__ import annotations

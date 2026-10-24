@@ -6,6 +6,9 @@ import { Button, Label, Panel } from "./Primitives";
 
 export type DrawTool = "none" | "queue" | "entry" | "exit";
 
+/** An interactive queue region stays a simple polygon; see the click handler. */
+const MAX_QUEUE_CORNERS = 12;
+
 interface VideoViewerProps {
   src: string;
   regions: Regions;
@@ -67,8 +70,9 @@ export function VideoViewer({
     if (!point) return;
     if (tool === "queue") {
       const next = [...draft, point];
-      if (next.length > 12) setDraft(next);
-      else setDraft(next);
+      // A queue region is meant to be a simple polygon; past a dozen corners
+      // the shape is a scribble and the slow-membership scan gets slower.
+      if (next.length <= MAX_QUEUE_CORNERS) setDraft(next);
     } else {
       if (draft.length === 1) {
         onChange({ ...regions, [tool]: [draft[0], point] });
@@ -80,25 +84,47 @@ export function VideoViewer({
     }
   };
 
-  const doubleClick = (event: React.MouseEvent) => {
+  const commitQueue = useCallback(() => {
     if (tool !== "queue" || draft.length < 3) return;
-    event.preventDefault();
     onChange({ ...regions, queue: draft });
     setDraft([]);
     onCommit?.();
+  }, [draft, onChange, onCommit, regions, tool]);
+
+  const doubleClick = (event: React.MouseEvent) => {
+    if (tool !== "queue") return;
+    event.preventDefault();
+    commitQueue();
   };
 
-  const undo = () => {
+  /**
+   * The overlay is a canvas, so it carries its own keyboard path: Enter closes
+   * a queue polygon and Escape abandons the draft.  Without this the help text
+   * promises "press Enter" and nothing happens.
+   */
+  const handleOverlayKey = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitQueue();
+    } else if (event.key === "Escape" && draft.length > 0) {
+      event.preventDefault();
+      setDraft([]);
+    }
+  };
+
+  const undo = useCallback(() => {
     if (draft.length === 0) return;
     setDraft(draft.slice(0, -1));
-  };
+  }, [draft]);
 
-  const clearCurrent = () => {
+  const clearCurrent = useCallback(() => {
     if (tool === "none") return;
     onChange({ ...regions, [tool]: [] });
     setDraft([]);
     onCommit?.();
-  };
+  }, [onChange, onCommit, regions, tool]);
+
+  const drawing = editable && tool !== "none";
 
   useEffect(() => {
     // Hand the element to the shared timeline so the transport bar and every
@@ -123,7 +149,7 @@ export function VideoViewer({
             {formatTimecode(time)} / {formatTimecode(duration)}
           </span>
         </div>
-        {editable && tool !== "none" && (
+        {drawing && (
           <div className="flex items-center gap-1.5">
             <Button variant="ghost" onClick={undo} disabled={draft.length === 0}>
               Undo point
@@ -161,16 +187,27 @@ export function VideoViewer({
             onPause={() => setPlaying(false)}
             onEnded={() => setPlaying(false)}
             playsInline
+            aria-label="Annotated video of the analysed clip"
           />
         <svg
           ref={overlayRef}
           viewBox="0 0 1 1"
           preserveAspectRatio="none"
           className={`absolute inset-0 h-full w-full ${
-            editable && tool !== "none" ? "cursor-crosshair" : "pointer-events-none"
+            drawing ? "cursor-crosshair" : "pointer-events-none"
           }`}
           onClick={handleClick}
           onDoubleClick={doubleClick}
+          onKeyDown={handleOverlayKey}
+          role="img"
+          tabIndex={drawing ? 0 : undefined}
+          aria-label={
+            drawing
+              ? `Region overlay, drawing the ${tool} ${
+                  tool === "queue" ? "region" : "line"
+                }. ${draft.length} point(s) placed. Press Enter to finish, Escape to cancel.`
+              : "Region overlay"
+          }
         >
           {regions.queue.length >= 3 && (
             <polygon
@@ -232,6 +269,13 @@ export function VideoViewer({
       </div>
 
       <div className="flex items-center gap-3 border-t border-rule px-4 py-2">
+        {drawing && (
+          <p className="sr-only" role="status" aria-live="polite">
+            {tool === "queue"
+              ? `Drawing the queue region. ${draft.length} point(s) placed.`
+              : `Drawing the ${tool} line. ${draft.length} of 2 point(s) placed.`}
+          </p>
+        )}
         <Button variant="secondary" onClick={replayToggle}>
           {replayPlaying ? "Pause" : "Play"}
         </Button>
@@ -258,4 +302,3 @@ export function VideoViewer({
     </Panel>
   );
 }
-

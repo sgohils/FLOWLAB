@@ -125,7 +125,9 @@ def probe_video(path: Path, settings: Settings) -> VideoProbe:
         )
     if not _first_frame_decodes(path):
         raise StorageError("The video header is readable but no frames could be decoded.")
-    return VideoProbe(width=width, height=height, fps=fps, frame_count=frame_count, duration=duration)
+    return VideoProbe(
+        width=width, height=height, fps=fps, frame_count=frame_count, duration=duration
+    )
 
 
 def _first_frame_decodes(path: Path) -> bool:

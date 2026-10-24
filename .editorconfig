@@ -1,0 +1,42 @@
+# FLOWLAB - editor and IDE settings.
+#
+# Note: this file describes what *new and edited* lines should look like.  It
+# is NOT a claim that every existing file already matches.  The repository was
+# authored on Windows and many tracked files are still CRLF on disk even though
+# .gitattributes normalises them to LF in the index; reformatting the whole tree
+# to satisfy this file would bury the actual changes in noise.  ruff and
+# check_encoding are the gates that matter; this is for humans and editors.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100
+
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+[*.{ts,tsx,js,jsx,json,yml,yaml,css,html}]
+indent_size = 2
+
+[*.{bat,cmd}]
+indent_size = 4
+# A Windows batch file has to keep CRLF to be safe under every cmd.exe version.
+end_of_line = crlf
+
+[*.sh]
+indent_size = 4
+
+[*.md]
+# Markdown is prose; reflowing it to a hard limit creates huge diffs.
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+[{Dockerfile,*.dockerfile,*.yml}]
+indent_size = 2

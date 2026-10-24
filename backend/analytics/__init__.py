@@ -5,7 +5,11 @@ from .events import build_events
 from .geometry import first_crossing_time, point_in_polygon, polygon_area
 from .metrics import build_analysis
 from .motion import detect_stops, segment_speed
-from .queue_detection import build_queue_series, track_episodes
+from .queue_detection import (
+    build_queue_series,
+    build_region_occupancy_series,
+    track_episodes,
+)
 from .throughput import collect_crossings, flow_statistics, rate_per_minute
 from .wait_time import wait_statistics
 
@@ -14,6 +18,7 @@ __all__ = [
     "build_analysis",
     "build_events",
     "build_queue_series",
+    "build_region_occupancy_series",
     "collect_crossings",
     "detect_stops",
     "first_crossing_time",

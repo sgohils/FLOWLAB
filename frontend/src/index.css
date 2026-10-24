@@ -45,6 +45,28 @@ body {
   color: #fff;
 }
 
+/* --------------------------------------------------------------- a11y ---
+
+   Keyboard focus must be visible everywhere, including on the custom
+   range inputs and the raw <button> elements the panels use.  Written as a
+   global rule so a new control cannot silently lose its focus ring, and
+   scoped to :focus-visible so a mouse click does not leave a ring behind. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* The range sliders draw their own track, so the ring goes on the thumb. */
+input[type="range"]:focus-visible {
+  outline: none;
+  accent-color: var(--color-accent);
+}
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 /* Recharts defaults, tuned to the same palette. */
 .recharts-cartesian-axis-line,
 .recharts-cartesian-axis-tick-line {
@@ -88,6 +110,23 @@ body {
 }
 .animate-pulse-soft {
   animation: flowlab-pulse 2.2s ease-in-out infinite;
+}
+
+/* Respect a stated preference for less motion: the pulse is decorative, so it
+   stops entirely rather than merely slowing down.  The status it marks is
+   already carried by its colour and its text. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-soft {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ----------------------------------------------------------------- print ---

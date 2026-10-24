@@ -12,6 +12,13 @@ command that was run and what it actually printed.
 > The "Resolution" line on each defect records what was done afterwards. Two defects
 > (D19, D20) were found by the work that followed, and are listed in the addendum at the
 > end.
+>
+> A second, much larger sweep was run on **2026-09-30** after tooling was enabled
+> (ruff, mypy, warnings-as-errors, a frontend test runner). It found 15 further
+> defects, including two that had shipped, and added the regression tests for all of
+> them. That is **Addendum 2** at the end. Nothing in D1-D22 above has been
+> rewritten; the test counts in this document are the counts as they stood at each
+> date, and the current figures are in Addendum 2 and in `docs/VERIFICATION.md`.
 
 ---
 
@@ -302,6 +309,17 @@ are listed because the record matters more than the ordering.
 | D21 | The bundled demo's own entry line sat at x = 0.14 while vehicles in an outer lane start at x ≈ 0.15, so 2 of 26 arrivals were never counted | the validation workflow: arrivals 24 vs 26 | the line moved to x = 0.20; this is a *configuration* fix, and the detection code was correct |
 | D22 | The first ground-truth generator double-counted a vehicle across sampling instants, making the reference disagree with the pipeline by a factor of two | validation mean absolute error of 2.85 vehicles | fixed; the same per-vehicle cursor rule as the measurement layer, error dropped to 0.211 vehicles |
 
+*Superseded figure (noted 2026-09-29).* The 0.211 vehicles in D22 was measured
+while the stored queue series was decimated by taking every *n*-th grid sample.
+D11 in `docs/ENGINEERING_DECISIONS.md` changed that thinning to the bucket
+maximum, and the *same* comparison against the *same* reference series now reads
+**0.188 vehicles** (max 2, exact on 81.8 % of instants) — re-measured, not
+estimated. The D22 row is deliberately left as written: it is a record of what
+was true when that defect was found, and rewriting the number would imply the
+fix had been verified with code that did not exist at the time. The current
+like-for-like figure — region occupancy against the reference's occupancy counts
+— is 0.028 vehicles; see `docs/VALIDATION_REPORT.md`.
+
 The full resolution of D1–D18:
 
 | # | Resolution |
@@ -324,3 +342,91 @@ The full resolution of D1–D18:
 | D16 | `run.bat` / `run.sh` with `doctor`, `test`, `install`, `build`; `python -m backend.scripts.doctor` checks imports, model weights, storage and the database |
 | D17 | BOMs stripped from the eight affected files |
 | D18 | Stated in the simulation notes and in the chart caption: one waiting point in the model versus an area in the video |
+
+---
+
+## Addendum 2 — the 2026-09-30 improvement pass
+
+**Date:** 2026-09-30. **Method:** the same loop as the first audit. Read the
+code, turned on tooling that had never been enabled, ran the full gate, traced a
+metric, re-ran the ground-truth validation, and did **not** fix anything in the
+browser. The D1-D20 entries above are left exactly as written, with their
+resolutions, because they are a record of what was true when each defect was
+found.
+
+**Suite:** 200 -> **277** backend tests, plus a new 50-test frontend suite. Every
+one of the bugs below has a regression test that fails on the old code; the ones
+found by the type checker and the linter had **no** test at all, which is the
+point.
+
+```text
+$ python -m pytest                       277 passed in 16.01s
+$ python -m ruff check backend           All checks passed!
+$ python -m mypy                         Success: no issues found in 38 source files
+$ python -m backend.scripts.check_encoding    scanned 120 files: clean
+$ python -m pytest --cov=backend --cov-report=term    TOTAL 84 % (2907 stmts, 406 missed)
+$ cd frontend && npm test                4 files, 50 passed
+```
+
+### Defects found and fixed in this pass
+
+| # | Defect | Severity | How it was found | Resolution |
+| --- | --- | --- | --- | --- |
+| A1 | Every failed analysis raised `TypeError` before the database update: `_activate_stage(..., status="error")` passed `status` to a parameter named `status_value`, colliding with the first positional argument | correctness, P0 | enabling mypy | `status=` -> `status_value=`. The job-failure path was never exercised, so 200 tests passed with the defect in place. `backend/tests/test_job_failure.py`, 4 tests, 3 of which fail if the old keyword returns |
+| A2 | No SQLite connection was ever closed: `Database._connect()` returned a bare connection and `with self._connect()` is sqlite3's *transaction* manager, not a close | resource, P1 | setting `filterwarnings = ["error"]`, which turned the leak into 8 failing tests | `_connect()` is now a `@contextmanager` with `finally: connection.close()`. `backend/tests/test_database.py`, 6 tests |
+| A3 | `backend/vision/__init__.py` `__all__` named `VehicleDetectionError`; the class is `DetectorError`, so `from backend.vision import *` raised `AttributeError` | packaging, P2 | reading `__all__` against the module | name corrected; `test_package_layout.py` now walks every `__all__` in the package and star-imports every module |
+| A4 | The SPA catch-all served `FRONTEND_DIST / full_path` with no containment check | security, P1 | reading `spa()` | `spa_file()` resolves and verifies containment, falling back to `index.html` |
+| A5 | `PUT /analyses/{id}/regions` ignored `?trajectory_points=` while `GET .../result` honoured it, so a re-measure returned a different map resolution than a reload | correctness, P2 | comparing the two routes | both take the parameter, same default, same 4-600 clamp, same `_downsample` helper |
+| A6 | `doctor.py` reported `ok` for the dependency pins whatever was installed, which is how an OpenCV 5.0.0 install survived a `>=4.10,<5` bound | tooling, P2 | reading the check | bounds are parsed out of `backend/requirements.txt` and compared with `importlib.metadata`; an unparseable clause is a failure. The bound was widened to `>=4.10,<6`. `test_doctor.py`, 20 tests |
+| A7 | `hasQueueRegion` threw on a malformed stored record | frontend, P2 | a new test | `Array.isArray`-guarded |
+| A8 | `queueAt` disagreed with `backend.analytics.timeline.queue_at` before the first sample, so the replay cursor and the queue chart disagreed at t=0 | frontend correctness, P1 | reading both implementations | returns `null` before the first sample |
+| A9 | `VideoViewer.handleClick` had `if (next.length > 12) setDraft(next); else setDraft(next);` - both arms identical, a no-op guard | frontend, P2 | reading the handler | a real `MAX_QUEUE_CORNERS` cap |
+| A10 | `CorridorMap` rendered the literal text `still queued}s` in its tooltip, and its caption claimed a thinning the code never performed | frontend, P3 | reading the component | both fixed; the code now really does thin to 120 tracks |
+| A11 | `ExportMenu` put `role="menuitem"` on elements inside a `<ul>`, breaking ARIA ownership, and promised arrow-key navigation that did not exist | accessibility, P2 | reading the component | correct list semantics; Escape returns focus to the trigger |
+| A12 | Type drift against `backend/models/schemas.py` in both directions: `EvidenceFacts.evidence_is_thin` is a Pydantic `@property` and is never serialised, while `Analysis.region_occupancy_timeseries` was missing from TypeScript | frontend correctness, P2 | diffing the two models | phantom field removed, missing field added. **There is still no automated guard** for schema-to-TypeScript agreement |
+| A13 | `GET /api/analyses` and `GET /api/analyses/{id}/export/measurements` were implemented, tested and unused by the frontend; the scenario presets were hardcoded in the frontend and had drifted from the endpoint that serves them | product, P2 | asking what calls each route | saved-analyses panel, degraded-mode banner, fifth export entry, presets loaded from the API with a visibly labelled offline fallback |
+| A14 | `CorridorMap` was a complete component nothing rendered | dead code, P3 | looking for dead exports | wired into the Simulation page after A10 was fixed |
+| A15 | The region editor's help text promised "press Enter" and nothing listened for it | accessibility, P2 | reading the help against the handlers | Enter closes a polygon, Escape abandons the draft; plus a global `:focus-visible` ring, `prefers-reduced-motion`, `aria-live` on the processing status, named icon-only controls, a skip link and landmarks |
+
+### Dead code removed
+
+Backend: `recompute_with_regions`, `is_baseline`, `timeline_sample_count`,
+`queue_at` and `position_at` (the last three existed only for tests), and the
+second copy of the shoelace area function in `models/schemas.py`. Frontend: three
+exported types duplicating `TimelinePayload`, plus `RegionKind`,
+`RegionToolPicker`, `EvidenceHeader` and `PlaybackBadge`. All three `# type:
+ignore` comments are gone and the one un-annotated backend parameter is
+annotated.
+
+### Architecture change
+
+`backend/geometry.py` is new and holds the pure geometry primitives; it imports
+nothing from the project, which is what lets `models/schemas.py` share them
+without a cycle. `backend/analytics/geometry.py` is now a re-export shim. The
+layering rule and the reason are in D16 of
+`docs/ENGINEERING_DECISIONS.md` and in `CONTRIBUTING.md`.
+
+### Tooling added
+
+| File | What it is |
+| --- | --- |
+| `pyproject.toml` | the authoritative dependency list, plus ruff, mypy, pytest and coverage configuration |
+| `backend/requirements-dev.txt` | pytest, httpx, ruff, mypy, pytest-cov - removed from the runtime requirements |
+| `.editorconfig` | line endings, indentation, final newline |
+| `.pre-commit-config.yaml` | ruff and the encoding check on changed files |
+| `.github/workflows/ci.yml` | backend on Python 3.11 and 3.13, frontend on Node 20 and 24 |
+| `.dockerignore` (root) | keeps the build context to what the images actually copy, with a matcher test |
+| `CONTRIBUTING.md` | the layering rule, seven house rules, how to write a test that can fail |
+| `frontend/vitest.config.ts`, four test files | the frontend suite, which did not exist before |
+
+### What this pass did **not** verify
+
+| Item | Status |
+| --- | --- |
+| `docker compose build` / `up` | **Never run.** Docker is not installed here. The compose YAML parses, the two services and the one profile are as documented, and 47 tests prove the ignore rules cannot delete a build input. That is the limit of the evidence. |
+| CI | **Never run.** `ci.yml` parses and each of its steps was executed by hand locally. The hosted runners, the Python 3.11 leg and the Node 20 leg have not. |
+| mypy on Python 3.11 | Only 3.13 is installed. `pyproject.toml` sets `python_version = "3.12"` deliberately because numpy >= 2.3's stubs use PEP 695 `type` statements that mypy cannot parse under 3.11. A 3.12-only syntax slip would be caught by the CI 3.11 leg, not locally. |
+| The browser | **Not re-driven.** The Home panels, the fifth export entry, `CorridorMap` on the Simulation page and every keyboard path are implemented and type-check, and none has been seen rendered or tabbed through. |
+| `noUncheckedIndexedAccess` | Measured at 41 diagnostics and deliberately left off; the reasoning is recorded in `frontend/tsconfig.json` and D22. This is a real, chosen limitation, not an oversight. |
+| Sampling-rate sensitivity | Still unmeasured. Nothing in this pass changes that. |
+| Detector accuracy on real footage | **Still not validated, and nothing here changes it.** |

@@ -312,3 +312,221 @@ def test_upload_queue_is_bounded(client: TestClient, tmp_video, monkeypatch):
 def test_status_endpoint_never_crashes_for_unknown_ids(client: TestClient):
     response = client.get("/api/analyses/never-seen/status")
     assert response.status_code == 404
+
+# ------------------------------------------------------ single page app safety
+
+
+def _fake_dist(tmp_path):
+    """A build directory plus a file that must never be reachable from it."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>FLOWLAB</html>", encoding="utf-8")
+    (dist / "app.js").write_text("console.log('app')", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("classified", encoding="utf-8")
+    return dist
+
+
+def test_spa_never_serves_a_file_outside_the_frontend_dist(tmp_path, monkeypatch):
+    """The catch-all must resolve *and* check containment, not just join a path."""
+    from backend import main
+
+    dist = _fake_dist(tmp_path)
+    monkeypatch.setattr(main, "FRONTEND_DIST", dist)
+
+    assert main.spa_file("app.js").read_text(encoding="utf-8") == "console.log('app')"
+    assert main.spa_file("").name == "index.html"
+    assert main.spa_file("missing.js").name == "index.html"  # client-side route
+    for escape in (
+        "../secret.txt",
+        "assets/../../secret.txt",
+        "/../secret.txt",
+        "..",
+        "../",
+        "..%2fsecret.txt",
+        "....//secret.txt",
+    ):
+        assert main.spa_file(escape).name == "index.html", escape
+
+
+def test_spa_route_over_http_refuses_to_leave_the_build_directory(tmp_path, monkeypatch):
+    """The same handler, reached the way a browser reaches it."""
+    from fastapi import FastAPI
+    from fastapi.responses import FileResponse
+    from fastapi.testclient import TestClient
+
+    from backend import main
+
+    monkeypatch.setattr(main, "FRONTEND_DIST", _fake_dist(tmp_path))
+    bundle = FastAPI()
+
+    @bundle.get("/{full_path:path}")
+    async def spa(full_path: str):
+        return FileResponse(main.spa_file(full_path))
+
+    with TestClient(bundle) as http:
+        assert http.get("/app.js").text == "console.log('app')"
+        assert http.get("/").text == "<html>FLOWLAB</html>"
+        assert http.get("/analyses").text == "<html>FLOWLAB</html>"
+        for path in ("/../secret.txt", "/%2e%2e/secret.txt", "/%2e%2e%2fsecret.txt"):
+            assert "classified" not in http.get(path).text, path
+
+
+# ------------------------------------------- result / regions query symmetry
+
+
+@pytest.fixture()
+def stored_analysis(monkeypatch):
+    """A non-demo analysis with long tracks, stored behind the normal loader.
+
+    The demo dataset is read-only, so the region endpoints need a real analysis
+    of their own; its tracks are long enough that a sample limit is visible.
+    """
+    from backend.analytics.metrics import build_analysis
+    from backend.api import routes_analysis
+    from backend.models.schemas import VideoInfo
+    from backend.tests.conftest import make_regions, make_track
+
+    tracks = [
+        make_track(1, [(0.02 + 0.004 * index, 0.5) for index in range(200)], step=0.1),
+        make_track(2, [(0.02 + 0.004 * index, 0.8) for index in range(200)], step=0.1),
+    ]
+    analysis = build_analysis(
+        analysis_id="synthetic",
+        video=VideoInfo(
+            filename="clip.mp4",
+            duration=25.0,
+            fps=25.0,
+            width=320,
+            height=180,
+            size_bytes=1024,
+            processed_fps=10.0,
+            frame_count=625,
+        ),
+        tracks=tracks,
+        regions=make_regions(),
+        source="video",
+        created_at=0.0,
+    )
+    monkeypatch.setattr(routes_analysis, "_require_analysis", lambda _id: (analysis, tracks))
+    return analysis
+
+
+def _points(body: dict) -> list[int]:
+    return [len(track["points"]) for track in body["trajectories"]]
+
+
+def test_result_and_regions_honour_trajectory_points_identically(client, stored_analysis):
+    """One parameter, one meaning: redrawing regions must not change the map size."""
+    payload = {"regions": stored_analysis.regions.model_dump(mode="json")}
+    for limit in (4, 10, 60, 200):
+        fetched = client.get(f"/api/analyses/synthetic/result?trajectory_points={limit}")
+        redrawn = client.put(
+            f"/api/analyses/synthetic/regions?trajectory_points={limit}", json=payload
+        )
+        assert fetched.status_code == redrawn.status_code == 200
+        assert _points(fetched.json()) == _points(redrawn.json()), limit
+        assert _points(fetched.json()) == [limit, limit], limit
+
+
+def test_both_endpoints_default_to_the_same_resolution(client, stored_analysis):
+    payload = {"regions": stored_analysis.regions.model_dump(mode="json")}
+    fetched = client.get("/api/analyses/synthetic/result")
+    redrawn = client.put("/api/analyses/synthetic/regions", json=payload)
+    assert _points(fetched.json()) == _points(redrawn.json()) == [60, 60]
+
+
+def test_both_endpoints_reject_the_same_out_of_range_limits(client, stored_analysis):
+    payload = {"regions": stored_analysis.regions.model_dump(mode="json")}
+    for limit in (3, 601):
+        result = client.get(f"/api/analyses/synthetic/result?trajectory_points={limit}")
+        assert result.status_code == 422
+        redrawn = client.put(
+            f"/api/analyses/synthetic/regions?trajectory_points={limit}", json=payload
+        )
+        assert redrawn.status_code == 422, limit
+        assert "trajectory_points" in redrawn.json()["message"]
+
+
+def test_regions_response_keeps_the_measurements_and_only_thins_the_map(
+    client, stored_analysis
+):
+    """Down-sampling is a transport decision: no summary number may move."""
+    payload = {"regions": stored_analysis.regions.model_dump(mode="json")}
+    full = client.get("/api/analyses/synthetic/result?trajectory_points=600").json()
+    thin = client.put(
+        "/api/analyses/synthetic/regions?trajectory_points=4", json=payload
+    ).json()
+    assert thin["summary"] == full["summary"]
+    assert thin["queue_timeseries"] == full["queue_timeseries"]
+    assert thin["calibration"] == full["calibration"]
+    assert _points(thin) == [4, 4]
+    # The first and last samples survive thinning so the map path stays complete.
+    for track in thin["trajectories"]:
+        assert track["points"][0]["time"] == 0.0
+        assert track["points"][-1]["time"] == 19.9
+
+
+# -------------------------------------------------------- error contract
+
+
+def test_every_error_uses_the_same_message_and_hint_shape(client):
+    """One error shape, whatever went wrong - the client never inspects a body."""
+    responses = [
+        client.get("/api/analyses/does-not-exist/result"),
+        client.get("/api/analyses/demo/result?trajectory_points=3"),
+        client.delete("/api/analyses/demo"),
+        client.post("/api/analyses/demo/simulate", json={"scenario": {"volume": 9.0}}),
+        client.put("/api/analyses/demo/regions", json={"regions": {}}),
+        client.get("/api/analyses/never-seen/status"),
+    ]
+    for response in responses:
+        assert response.status_code >= 400, response.url
+        body = response.json()
+        assert set(body) == {"message", "hint"}, response.url
+        assert isinstance(body["message"], str) and body["message"]
+
+
+def test_a_refusal_that_says_what_to_do_next_carries_a_hint(client, tmp_video, monkeypatch):
+    """The 429 is the one error the user can act on immediately, so it says how."""
+    from backend.api import state
+    from backend.api.routes_upload import QUEUE_FULL_HINT
+
+    monkeypatch.setattr(state.jobs, "pending_count", lambda: 99)
+    path = tmp_video("clip.mp4", seconds=3.0)
+    with open(path, "rb") as handle:
+        response = client.post(
+            "/api/uploads", files={"file": ("clip.mp4", handle, "video/mp4")}
+        )
+    assert response.status_code == 429
+    assert response.json()["hint"] == QUEUE_FULL_HINT
+
+
+# ------------------------------------------------------------ status states
+
+
+def test_status_reports_every_state_the_database_can_hold(client):
+    from backend.api.state import database
+
+    for stored in ("queued", "processing", "complete", "error"):
+        analysis_id = f"status-{stored}"
+        database.create(analysis_id, source="video", filename="clip.mp4", upload_path=None)
+        database.update(analysis_id, status=stored)
+        try:
+            body = client.get(f"/api/analyses/{analysis_id}/status").json()
+            assert body["status"] == stored
+        finally:
+            database.delete(analysis_id)
+
+
+def test_an_unknown_stored_state_is_reported_rather_than_guessed(client):
+    """The column is free-form TEXT, so an unknown value must not be passed through."""
+    from backend.api.state import database
+
+    database.create("status-broken", source="video", filename="clip.mp4", upload_path=None)
+    database.update("status-broken", status="halfway")
+    try:
+        response = client.get("/api/analyses/status-broken/status")
+        assert response.status_code == 500
+        assert "halfway" in response.json()["message"]
+    finally:
+        database.delete("status-broken")

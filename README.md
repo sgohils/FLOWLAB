@@ -1,5 +1,7 @@
 # FLOWLAB
 
+[![CI](https://github.com/sgohils/FLOWLAB/actions/workflows/ci.yml/badge.svg)](https://github.com/sgohils/FLOWLAB/actions/workflows/ci.yml)
+
 **See where traffic slows down. Test what happens if it changes.**
 
 FLOWLAB turns ordinary traffic video into an interactive digital twin: anonymous
@@ -34,6 +36,7 @@ face, plate or identity processing anywhere in the code.
 14. [Licences and attribution](#licences-and-attribution)
 15. [Limitations](#limitations)
 16. [Project layout](#project-layout)
+17. [Contributing](#contributing)
 
 ---
 
@@ -68,6 +71,23 @@ labelled as such in the interface.
 Every metric is a count or a difference of timestamps over the tracked vehicles.
 There is no opaque "congestion score".
 
+### Where the numbers come from
+
+Every headline card can be opened with **why?**, which shows the formula, the
+counts and timestamps that produced the value, and what the number is not. Below
+the results, an **evidence and assumptions** panel lists every count the
+measurements rest on — crossings in and out, completed versus censored queue
+visits, tracking gaps, the share of missing samples and the observation window —
+and says plainly when that evidence is too thin to lean on. A measurement that
+could not be made reads **unavailable** with its reason, never `0`.
+
+```text
+$ python -m backend.scripts.trace_metric demo peak_queue
+```
+
+re-derives the displayed peak queue from the raw samples and checks it against
+the grid, the API and the event list.
+
 ### The connected replay
 
 The analysis page is one instrument, not five screens. A single clock drives:
@@ -88,7 +108,7 @@ no source footage behind it.
 
 ## Installation
 
-**Requirements:** Python 3.11+ (3.13 tested), Node.js 18+ (24 tested), about
+**Requirements:** Python 3.11+ (3.13 tested), Node.js 20+ (24 tested), about
 2 GB of disk for dependencies.
 
 ### The fast path
@@ -102,30 +122,65 @@ run.bat
 `run.bat` finds a working Python even when `python` on your PATH is the
 Microsoft Store stub (a real problem on Windows: `py -3` and the
 `%LOCALAPPDATA%\Programs\Python\Python3xx\python.exe` locations are tried in
-turn). On macOS or Linux use `./run.sh install`.
+turn). A candidate is not accepted until it has answered both `import sys` and
+`-m pip --version`, so a `.venv` that exists but was never populated is reported
+by name, with the fix (`run.bat install`, or delete the directory), instead of
+failing three commands later with a bare `ImportError`. On macOS or Linux use
+`./run.sh install`; the subcommands are the same.
+
+| Subcommand | What it does |
+| --- | --- |
+| `run.bat` / `start` | the API on :8000 and the Vite dev server on :5173 |
+| `run.bat install` | runtime **and** development dependencies, then `npm install` |
+| `run.bat lint` | `ruff check backend` plus the source encoding check |
+| `run.bat test` | the backend suite plus the encoding check |
+| `run.bat build` | the production frontend bundle into `frontend/dist` |
+| `run.bat check` | the single health gate: ruff, backend tests, encoding, frontend typecheck, frontend tests, frontend build |
+| `run.bat doctor` | environment report; changes nothing |
+| `run.bat /?` | the same list |
+
+`check` does **not** run mypy. Type checking is a CI gate only, so run
+`python -m mypy` from the repository root when you want it locally.
 
 ### Manual install
 
 ```bat
 python -m pip install -r backend\requirements.txt
+python -m pip install -r backend\requirements-dev.txt
 cd frontend
 npm install
 cd ..
 ```
 
+The second file is the test and lint toolchain (pytest, httpx, ruff, mypy,
+pytest-cov). `backend/requirements.txt` is runtime-only and no longer carries
+them, so a deployment image installs nothing it does not run.
+
+**`pyproject.toml` is the authoritative dependency list.** The two requirements
+files mirror it, because `pip install -r` cannot read a `[project]` table.
+`test_requirements_txt_and_pyproject_declare_the_same_bounds` in
+`backend/tests/test_doctor.py` compares them, so they cannot drift apart without
+a test failing. From the repository root, `pip install -e ".[dev]"` installs both
+sets in one step.
+
 <details>
-<summary>Verified on a clean virtual environment</summary>
+<summary>What is verified about the environment</summary>
 
-```bat
-python -m venv .venv
-.venv\Scripts\python -m pip install -r backend\requirements.txt
-.venv\Scripts\python -m pytest backend/tests -q
-```
+On 2026-09-30, Windows 11, Python 3.13.5: `python -m backend.scripts.doctor`
+reported every runtime import present and every installed version inside the
+bound declared in `backend/requirements.txt` - fastapi 0.141.1, uvicorn
+0.54.0, pydantic 2.12.5, numpy 2.5.1, opencv-python 5.0.0, ultralytics 8.4.163,
+torch 2.14.0+cpu, pytest 9.1.1 - and `python -m pytest` then reported
+**277 passed**.
 
-Result on 2026-09-27, Windows 11, Python 3.13.5: install finished with exit
-code 0, resolving fastapi 0.141.1, opencv-python 4.14.0.94, numpy 2.5.3,
-ultralytics 8.4.164, torch 2.14.0+cpu, pydantic 2.13.5; `python -m pytest` then
-reported **129 passed**. The install downloads roughly 1.2 GB, most of it torch.
+A clean virtual environment was last installed end to end on 2026-09-27, with
+the requirements as they stood then. They have changed since: the OpenCV bound
+was widened from `<5` to `<6` to match the installed 5.0.0, and the test
+dependencies moved into `backend/requirements-dev.txt`. `run.bat install`
+installs both files and is the path the current checkout is documented against;
+a fresh-venv install has not been repeated since those two changes.
+
+The install downloads roughly 1.2 GB, most of it torch.
 </details>
 
 ### Model
@@ -143,18 +198,60 @@ set FLOWLAB_MODEL=C:\models\yolo11s.pt
 
 ### Configuration
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `FLOWLAB_DATA_DIR` | `./data` | Uploads, processed videos, SQLite file |
-| `FLOWLAB_MODEL` | `yolo11n.pt` | Detector checkpoint |
-| `FLOWLAB_DEVICE` | `auto` | `auto`, `cpu`, or `0` for GPU 0 |
-| `FLOWLAB_SAMPLE_FPS` | `10` | Processed frames per second (5–15) |
-| `FLOWLAB_CONFIDENCE` | `0.25` | Detector confidence threshold |
-| `FLOWLAB_CLASSES` | all vehicles | Comma-separated COCO class names |
-| `FLOWLAB_ROI` | – | `x0,y0,x1,y1` crop applied before inference |
-| `FLOWLAB_MAX_UPLOAD_MB` | `250` | Upload size limit |
-| `FLOWLAB_MAX_DURATION` | `900` | Maximum clip length in seconds |
-| `FLOWLAB_MAX_QUEUED` | `3` | Uploads queued before new ones are refused |
+All of them live in `backend/config.py`; nothing else in the code reads an
+environment variable. Where a value is marked **clamped**, `config.py` forces it
+into range rather than trusting the caller. A value that cannot be parsed falls
+back to the default instead of raising, so a typo in a launch script degrades to
+the tested behaviour.
+
+| Variable | Default | Meaning | Range |
+| --- | --- | --- | --- |
+| **Storage** | | | |
+| `FLOWLAB_DATA_DIR` | `./data` | Root for uploads, processed videos and the SQLite file | any path |
+| **Detector** | | | |
+| `FLOWLAB_MODEL` | `yolo11n.pt` | Checkpoint name or path | any Ultralytics model |
+| `FLOWLAB_DEVICE` | `auto` | Inference device | `auto`, `cpu`, `0` for GPU 0 |
+| `FLOWLAB_CONFIDENCE` | `0.25` | Detection confidence threshold | 0-1 |
+| `FLOWLAB_IOU` | `0.50` | NMS IoU threshold | 0-1 |
+| `FLOWLAB_IMGSZ` | `640` | Inference image size | positive int; a multiple of 32 in practice |
+| `FLOWLAB_TRACKER` | `bytetrack.yaml` | Tracking config passed to Ultralytics | any tracker name Ultralytics ships |
+| `FLOWLAB_CLASSES` | all five vehicles | Comma-separated COCO names; names that are not COCO vehicle ids are dropped | `car`, `bus`, `truck`, `motorcycle`, `bicycle` |
+| `FLOWLAB_ROI` | unset | `x0,y0,x1,y1` crop applied before inference, in normalised coordinates | `0 <= x0 < x1 <= 1` and `0 <= y0 < y1 <= 1`; anything else disables it |
+| **Sampling and smoothing** | | | |
+| `FLOWLAB_SAMPLE_FPS` | `10` | Processed frames per second | **clamped** to 5-15 |
+| `FLOWLAB_MIN_TRACK_POINTS` | `4` | Tracks shorter than this are detector noise | int >= 1 |
+| `FLOWLAB_SMOOTHING_ALPHA` | `0.55` | Contact-point smoothing | **clamped** to 0-1 |
+| `FLOWLAB_SMOOTHING_JUMP` | `0.02` | A jump larger than this is real movement and is never smoothed away | normalised units |
+| `FLOWLAB_TRAIL_LENGTH` | `20` | Trail length drawn on the annotated video, in samples | int >= 0 |
+| **Measurement** | | | |
+| `FLOWLAB_SPEED_THRESHOLD` | `0.012` | Below this many frame widths per second counts as slow | positive float |
+| `FLOWLAB_MIN_STOP_SECONDS` | `1.5` | Minimum duration of a stop anywhere in the frame | float >= 0 |
+| `FLOWLAB_BOTTLENECK_COLS` | `8` | Bottleneck grid columns | int >= 1 |
+| `FLOWLAB_BOTTLENECK_ROWS` | `6` | Bottleneck grid rows | int >= 1 |
+| `FLOWLAB_BOTTLENECK_MIN_PASSES` | `2` | Distinct slowed vehicles before a cell is reported at all | int >= 1 |
+| `FLOWLAB_BOTTLENECK_MAX` | `6` | Bottleneck cells reported in the result | int >= 1 |
+| `FLOWLAB_KEEP_RAW_TRACKS` | `true` | Keep full-resolution tracks on disk so a region edit does not re-detect | `1`/`true`/`yes`/`on`, or `0`/`false`/`no`/`off` |
+| **Simulation** | | | |
+| `FLOWLAB_SIM_PROFILES` | `10` | Vehicles kept for the corridor visualisation | int >= 1 |
+| **Upload limits** | | | |
+| `FLOWLAB_MAX_UPLOAD_MB` | `250` | Upload size limit, in MB | int >= 1 |
+| `FLOWLAB_MAX_DURATION` | `900` | Maximum clip length, in seconds | float > 0 |
+| `FLOWLAB_MIN_DURATION` | `2` | Minimum clip length, in seconds | float >= 0 |
+| `FLOWLAB_MAX_FRAME_DIM` | `4096` | Longest frame edge accepted | int >= 1 |
+| **Jobs** | | | |
+| `FLOWLAB_MAX_JOBS` | `1` | Worker threads; one clip is processed at a time by default | int >= 1 |
+| `FLOWLAB_MAX_QUEUED` | `3` | Uploads waiting for a worker before new ones are refused with HTTP 429 | int >= 0 |
+| **Access** | | | |
+| `FLOWLAB_CORS_ORIGINS` | four loopback dev origins | Comma-separated browser origins allowed to call the API | loopback only, see below |
+
+The default for `FLOWLAB_CORS_ORIGINS` is
+`http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173`,
+the Vite dev server and the preview server. The API has **no
+authentication**, so that list is the only thing standing between a browser on
+the machine and every uploaded vehicle on it, and the loopback port binding is
+the other half of the same answer. Widening either to a routable host lets any
+page at that origin read the raw tracks and the stored file paths, so leave it
+on loopback unless you have put authentication in front of the API.
 
 `FLOWLAB_ROI` matters for elevated cameras: 30 m above the gate, a car may be
 20 pixels wide, and cropping to the carriageway before inference roughly tripled
@@ -191,12 +288,38 @@ The API has no authentication and serves local video files. Bind it to
 
 ### Docker
 
+The stack is **one application on <http://localhost:8000>**. The backend image
+builds the production frontend bundle in a first stage and serves it from the
+same origin, so there is no second process to keep in sync and no cross-origin
+question to answer.
+
 ```bash
-docker compose up --build
+docker compose up --build            # one app on :8000
+docker compose --profile dev up      # + the Vite dev server on :5173
 ```
 
-The Docker path has **not** been executed on the development machine, so treat
-it as unverified.
+The dev server is behind the `dev` profile precisely so it cannot start by
+accident; only that second service needs `FLOWLAB_CORS_ORIGINS` to include the
+Vite origin, because only it is a different origin. Both published ports bind to
+`127.0.0.1`, for the same reason the local commands do: the API has no
+authentication.
+
+**Docker is not installed on the development machine, so this path remains
+unverified.** What was checked, by inspection rather than by running it:
+
+- `docker-compose.yml` parses as YAML and declares exactly the two services and
+  the one profile described above: `backend` with no profile, publishing
+  `127.0.0.1:8000:8000`, and `frontend` in the `dev` profile publishing
+  `127.0.0.1:5173:5173`.
+- `backend/tests/test_dockerignore.py` (47 tests, run and passing) applies the
+  root `.dockerignore` patterns with the same matcher Docker uses and asserts
+  that every `COPY` source in both Dockerfiles survives. A pattern added later
+  cannot silently delete a file the build needs.
+- The ignore file names, per entry, which Dockerfile needs that path, so the
+  exclusions can be reviewed against the build rather than trusted on sight.
+
+What was **not** checked: `docker compose build` and `docker compose up` have
+never run here. Treat the container path as unproven.
 
 ---
 
@@ -207,8 +330,9 @@ it as unverified.
 2. Watch the nine stages. Processing runs in a worker thread, so the page stays
    responsive; a 20 s clip takes roughly a minute on a CPU.
 3. Open **Queue region** on the video and draw the area where vehicles
-   accumulate: click to place corners, double-click to close. Every edit
-   re-measures immediately — detection is *not* repeated, so it takes about a
+   accumulate: click to place corners, double-click to close, or press Enter
+   to close and Escape to abandon (the overlay is a canvas, so it carries its
+   own keyboard path). Every edit re-measures immediately — detection is *not* repeated, so it takes about a
    second. You can also type coordinates instead of clicking.
 4. Draw an **Entry line** and an **Exit line** where every vehicle clearly
    passes. A line that some vehicles start *past* will never be crossed by
@@ -260,8 +384,9 @@ this project actually had.
 
 The 0.5 s rule exists so a single noisy detection cannot create a phantom
 queue, and it is deliberately the same kind of rule as the stop definition. It
-also means the pipeline lags the raw rule by up to 0.5 s while a queue grows,
-which is the entire explanation for the residual error in the validation report.
+also means the pipeline lags the raw rule by up to 0.5 s while a queue grows.
+That is the whole of the 0.188-vehicle gap in the second validation row; the
+region-occupancy comparison, which applies no hold, is unaffected by it.
 
 ### Estimated wait, slow time, region time, traversal time
 
@@ -406,6 +531,14 @@ With no spreading applied, the scenario runs over **exactly** the observation
 window, so throughput numbers cover the same duration. Spreading arrivals is the
 only control that lengthens the window, and the result says so.
 
+A **sensitivity range** re-runs the baseline with the estimated exit service
+time at 0.75x, 1.0x and 1.5x and reports the resulting spread, because that is
+the one parameter the application estimates rather than counts. On the bundled
+demo it reads: peak queue 12 / 14 / 17 vehicles and mean wait 27.1 / 37.4 /
+56.5 s. It is labelled a *sensitivity range*, not a confidence interval — no
+probability has been computed — and the interface uses it as a rule of thumb:
+a scenario effect smaller than that spread should not be read as real.
+
 The result is labelled *hypothetical simulated scenario* everywhere. FLOWLAB
 never issues a safety claim or a recommendation for a real site.
 
@@ -437,6 +570,31 @@ annotated video. The analytics then walk the trajectories once; the same walk
 re-runs after a region change because the full-resolution trajectories are kept
 on disk and the browser only receives a thinned copy.
 
+### The layering rule
+
+Imports run in **one direction only**. Nothing below ever imports from above.
+
+```text
+main.py  ->  api/  ->  analytics/ | simulation/ | vision/  ->  models/  ->  storage/
+                                                 \
+                                                  ->  geometry.py
+```
+
+`backend/geometry.py` is the **bottom** of the stack. It holds the pure planar
+primitives (polygon area and centroid, point-in-polygon, first crossing time,
+segment intersection, polyline simplification) and imports nothing from the
+project at all. It exists as its own module because `models/schemas.py` needs a
+polygon area to reject a too-small measurement region, and `analytics/` imports
+`models/`, so `models/` can never import from `analytics/` without a cycle.
+Anything added to `geometry.py` must stay standard-library only; a helper that
+needs the schemas or an analytics result belongs in the layer that owns that
+data. `backend/analytics/geometry.py` is now a re-export shim, so the existing
+imports keep working and there is exactly one implementation.
+
+`models/schemas.py` is the single API contract. The frontend mirrors it in
+`frontend/src/types/index.ts`; changing one without the other is what
+`npm run typecheck` is there to catch.
+
 ---
 
 ## API
@@ -444,16 +602,20 @@ on disk and the browser only receives a thinned copy.
 Interactive documentation: <http://localhost:8000/docs>
 
 | Method | Endpoint | Purpose |
+| Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | API status, whether the model is loaded |
 | `GET` | `/api/meta` | Model, classes, limits, processing stages |
 | `POST` | `/api/uploads` | Upload a video and start processing |
-| `GET` | `/api/analyses` | Recent analyses |
+| `GET` | `/api/analyses` | Recent analyses (`?limit=`, 1-100) |
 | `GET` | `/api/demo` | The bundled demo dataset |
 | `GET` | `/api/analyses/{id}/status` | Job status and per-stage progress |
 | `GET` | `/api/analyses/{id}/result` | Full result (`?trajectory_points=`) |
 | `GET` | `/api/analyses/{id}/timeline` | Replay data, split at tracking gaps (`?hz=`) |
-| `PUT` | `/api/analyses/{id}/regions` | Re-measure with new regions |
+| `PUT` | `/api/analyses/{id}/regions` | Re-measure with new regions (`?trajectory_points=`) |
+| `GET` | `/api/analyses/{id}/video/annotated` | The rendered video with the region overlay |
+| `GET` | `/api/analyses/{id}/video/source` | The uploaded clip, byte-range capable |
+| `GET` | `/api/analyses/{id}/simulation/presets` | The scenario presets for this analysis |
 | `GET` | `/api/analyses/{id}/export/summary.json` | Full result, no video |
 | `GET` | `/api/analyses/{id}/export/vehicles.csv` | Per-vehicle measurements |
 | `GET` | `/api/analyses/{id}/export/queue.csv` | Queue length series |
@@ -462,33 +624,91 @@ Interactive documentation: <http://localhost:8000/docs>
 | `DELETE` | `/api/analyses/{id}` | Delete the record **and all its files** |
 | `POST` | `/api/analyses/{id}/simulate` | Run one scenario |
 
-Errors always come back as `{"message": "...", "hint": "..."}`. Python
-tracebacks never reach the client.
+`?trajectory_points=` (default 60, clamped 4-600) is honoured by **both**
+`GET .../result` and `PUT .../regions`, so the map resolution a client gets back
+is the same whether it drew new regions or simply reloaded the page. The two
+endpoints used to disagree, which meant a re-measure silently redrew the map at
+a different resolution.
+
+Errors always come back as `{"message": "...", "hint": "..."}`. `api_error()` in
+`backend/api/errors.py` is the single way any route raises a 4xx or a 5xx, so the client never has to
+guess, and a Python traceback never reaches it.
 
 ---
 
 ## Testing
 
+The whole health gate is one command:
+
 ```bat
-run.bat test
+run.bat check
 ```
 
-142 tests, no network access and no model inference required, covering the parts
-that would otherwise produce wrong numbers quietly:
+which runs, in order: `ruff check backend` -> the pytest suite -> the source
+encoding check -> `npm run typecheck` -> `npm test` -> `npm run build`. It is the
+same set of checks CI runs, minus mypy (see below). The individual pieces are
+`run.bat lint` and `run.bat test`.
+
+**277 backend tests and 50 frontend tests, none of which touch the network or
+run model inference.** They cover the parts that would otherwise produce wrong
+numbers quietly:
 
 | Area | Examples |
 | --- | --- |
 | Geometry | point-in-polygon including boundaries and concave shapes, finite-segment crossings, self-intersecting region rejection |
-| Queue | counting, simultaneous queues, left- and right-censoring, the never-double-count invariant, the duration threshold |
+| Queue | counting, simultaneous queues, left- and right-censoring, the never-double-count invariant, the duration threshold, bucket-max thinning |
 | Stops | long vs short stops, gaps longer than the sampling interval |
 | Wait | averages, medians, maxima, censoring, repeated visits |
 | Throughput | crossing counts, direction policy, on-line jitter, gap handling |
 | Timeline | uniform-in-time resampling, segment splitting at dropouts, no position invented inside a gap, payload bounds |
-| Simulation | determinism, queue growth, second lane, faster service, spread arrivals, no overtaking, window alignment |
+| Simulation | determinism, queue growth, second lane, faster service, spread arrivals, no overtaking, window alignment, the sensitivity range |
+| Evidence | what each measurement was made from, thin-evidence rules, loading a result stored by an older build |
+| Ground truth | the reference series, the script's choice of which series to compare against, the labelled fallback |
 | Data lifecycle | delete removes every file, exports contain no footage or filename, interrupted jobs are recovered |
-| API | health, meta, demo, upload validation, region validation, export contract, three-way comparison, timeline contract |
+| Storage | every connection is closed, the queue really is bounded, the schema survives a reopen |
+| Job failures | a failed analysis reaches the database as `error`, not stuck at `processing` |
+| Package layout | `requirements.txt` and `pyproject.toml` do not drift, the ignore file cannot delete a build input |
+| Doctor | the version bounds are read from the file and compared with what is installed |
+| API | health, meta, demo, upload validation, region validation, export contract, three-way comparison, timeline contract, error shape |
 
-Frontend: `cd frontend && npm run build` runs `tsc -b` and the production build.
+The frontend suite is **vitest + @testing-library/react on jsdom**, four files,
+colocated with the code they cover: `utils/format.test.ts`,
+`types/index.test.ts`, `state/ReplayContext.test.tsx` and
+`components/Primitives.test.tsx`. It asserts on what a user can see
+(`screen.getByText`) rather than on snapshots, because a snapshot of a rendered
+tree is a picture of the component, not a statement about its behaviour.
+
+### Engineering quality, stated plainly
+
+- **Lint** - ruff over `backend/`, configured in `pyproject.toml`
+  (`E,F,I,UP,B,C4,SIM,RET,PTH,ARG,N,RUF`). Clean.
+- **Types** - mypy over 38 source files with `check_untyped_defs`, clean.
+  `backend/scripts/` and `backend/tests/` are excluded and say so in the config.
+  mypy runs in CI but **not** in `run.bat check`; run it yourself with
+  `python -m mypy`.
+- **Coverage** - 84 % line-and-branch over the measured package
+  (2907 statements, 406 missed), `backend/scripts` and `backend/tests` omitted
+  because they are operator tooling and are measured by their own assertions.
+  The vision layer is the weak part: `video_processor.py` at 22 % and
+  `trajectories.py` at 28 %, because running them means running inference.
+- **CI** - `.github/workflows/ci.yml`, two jobs on every push and pull request:
+  backend on Python 3.11 and 3.13 (ruff, mypy, pytest with coverage, encoding),
+  frontend on Node 20 and 24 (`npm ci`, typecheck, test, build). `ci.yml` sets
+  `FLOWLAB_MODEL` to a path that cannot resolve so the job cannot download a
+  6 MB checkpoint to prove that imports work.
+- **Warnings are errors** - `filterwarnings = ["error"]` in pytest, with exactly
+  one narrowly scoped ignore for a deprecation raised inside starlette.
+- **Pre-commit** - `.pre-commit-config.yaml` runs the same ruff and encoding
+  checks on the files you touched.
+- **Accessibility** - a global `:focus-visible` ring, `prefers-reduced-motion`
+  respected, `aria-live` on the processing status, named icon-only controls, a
+  skip link and real landmarks, and the video draw tools genuinely operable with
+  Enter and Escape (the on-screen help had always promised "press Enter"; nothing
+  implemented it).
+
+None of that is a claim of correctness. It is a claim that a wrong number has to
+get past a linter, a type checker, 327 automated tests and a second reviewer
+before it reaches you.
 
 One more check worth knowing about:
 
@@ -520,9 +740,20 @@ python -m backend.scripts.validate_against_reference backend/demo/sample_referen
 | --- | --- | --- | --- |
 | Arrivals | 26 | 26 | 0 |
 | Exit crossings | 26 | 26 | 0 |
-| Queue length, 1350 instants | — | — | mean abs. error **0.211 vehicles**, max 3, exact on 79.8 % |
+| Region occupancy, 1350 instants | occupancy counts | occupancy series | mean abs. error **0.028 vehicles**, max 1, exact on 97.2 % |
+| Queue length (slow rule), 1350 instants | slow-rule counts | queued series | mean abs. error **0.188 vehicles**, max 2, exact on 81.8 % |
 
-The residual is fully explained by the deliberate 0.5 s stability rule.
+The first row is the like-for-like one: the application's **region occupancy**
+(every vehicle inside the polygon, at any speed) against the reference's own
+occupancy counts, which are built with the same purely geometric rule. Its
+residual is 0.028 vehicles and comes from the stored series being thinned to 675
+samples for the chart, not from a definition gap.
+
+The second row is a different quantity, the application definition (inside the
+polygon *and* below the speed threshold for at least 0.5 s), against the
+reference's slow-rule counts, which apply no hold. That 0.188-vehicle gap is
+explained by the deliberate 0.5 s stability rule and is reported separately so
+the two are never conflated.
 
 **Does the detector find the right vehicles in real footage?** **Not yet
 validated.** That needs a clip you are permitted to use and annotations you
@@ -607,6 +838,15 @@ pointer, not legal advice.
   too short to measure, and the application says so rather than returning zeros.
 - **Sampling sensitivity is unmeasured.** It is not known how much the metrics
   move between 5 and 15 fps; doing that study is a listed task.
+- **The sensitivity range is not a confidence interval.** The exit service time
+  is re-run at 0.75x, 1.0x and 1.5x and the spread is reported, but no
+  probability has been computed and none should be inferred from it.
+- **The container image has never been built.** Docker is not installed on the
+  development machine. The compose file and the build inputs are verified; the
+  build and the running container are not.
+- **Continuous integration has never run.** The workflow is configured and every
+  one of its steps was executed by hand locally, but no hosted run of the
+  Python 3.11 or Node 20 leg exists yet.
 
 ---
 
@@ -615,42 +855,67 @@ pointer, not legal advice.
 ```text
 flowlab/
 ├── README.md
-├── run.bat / run.sh          one command to install, check, test and start
-├── docker-compose.yml
+├── CONTRIBUTING.md            how to set up, the layering rule, the house rules
+├── pyproject.toml             the authoritative dependency list; ruff, mypy,
+│                              pytest, coverage configuration
+├── .pre-commit-config.yaml    ruff and the encoding check on changed files
+├── .editorconfig              line endings, indentation, final newline
+├── .dockerignore              keeps the build context to what the images COPY
+├── .github/workflows/ci.yml   backend on py3.11+3.13, frontend on node20+24
+├── run.bat / run.sh           one command to install, check, test and start
+├── docker-compose.yml         one app on :8000; `--profile dev` adds Vite
 ├── docs/
-│   ├── READINESS_AUDIT.md    what was verified, what was broken, what is missing
-│   ├── VALIDATION_REPORT.md  measured accuracy, and what is still unvalidated
-│   ├── DECISIONS.md          ten design decisions, with alternatives and failures
-│   ├── AI_ASSISTANCE.md      what AI wrote and what it did not
+│   ├── PROJECT_ASSESSMENT.md  what works, what fails, what is untested
+│   ├── VERIFICATION.md        the commands run, and their actual output
+│   ├── READINESS_AUDIT.md     the earlier defect sweep and its resolutions
+│   ├── VALIDATION_REPORT.md   measured accuracy, and what is still unvalidated
+│   ├── ENGINEERING_DECISIONS.md  design choices, alternatives, tradeoffs
+│   ├── AI_ASSISTANCE.md       what AI wrote and what it did not
 │   ├── STUDENT_CONTRIBUTIONS.md
-│   ├── DEMO_SCRIPT.md        a timed 2m45s script and shot list
+│   ├── DEMO_SCRIPT.md         a timed 2m45s script and shot list
 │   ├── SUBMISSION_DRAFT.md
 │   ├── JUDGE_QA.md
 │   └── screenshots/
 ├── backend/
-│   ├── main.py               FastAPI app, error handling, SPA hosting
-│   ├── config.py             every tunable, environment overrides
-│   ├── api/                  routes, job manager, exports, shared state
-│   ├── vision/               detector, trajectories, annotator, video processor
-│   ├── analytics/            geometry, motion, queue, wait, throughput,
-│   │                         bottlenecks, events, suggestions, orchestrator
-│   ├── simulation/           calibration, scenarios, corridor simulator
-│   ├── models/schemas.py     the Pydantic contract for the whole API
-│   ├── storage/              SQLite and file helpers
-│   ├── validation/           how to write reference annotations
-│   ├── scripts/              demo dataset, doctor, validation, test clips
-│   ├── demo/                 the bundled synthetic dataset and its ground truth
-│   └── tests/                129 tests
+│   ├── main.py                FastAPI app, error handling, SPA hosting
+│   ├── config.py              every tunable, environment overrides
+│   ├── geometry.py            pure geometry primitives, no project imports
+│   ├── api/                   routes, job manager, exports, one error shape
+│   ├── vision/                detector, trajectories, annotator, video processor
+│   ├── analytics/             geometry (re-export), motion, queue, wait,
+│   │                          throughput, bottlenecks, events, suggestions,
+│   │                          timeline, orchestrator
+│   ├── simulation/            calibration, scenarios, corridor simulator
+│   ├── models/schemas.py      the Pydantic contract for the whole API
+│   ├── storage/               SQLite and file helpers
+│   ├── validation/            how to write reference annotations
+│   ├── scripts/               demo dataset, doctor, validation, test clips
+│   ├── demo/                  the bundled synthetic dataset and its ground truth
+│   ├── requirements.txt       runtime dependencies only
+│   ├── requirements-dev.txt  pytest, httpx, ruff, mypy, pytest-cov
+│   └── tests/                 277 tests
 └── frontend/
+    ├── vitest.config.ts       jsdom, Testing Library, reuses the Vite config
     └── src/
-        ├── api/client.ts     typed client, one error shape
-        ├── types/index.ts    TypeScript mirror of the schemas
-        ├── state/            analysis context, shared replay clock
-        ├── components/       uploader, viewer, region editor, replay transport,
-        │                     map, charts, evidence panels, print brief
-        ├── pages/            Home, Analysis, Simulation
-        └── utils/format.ts   shared formatting
+        ├── api/client.ts      typed client, one error shape
+        ├── types/index.ts     TypeScript mirror of the schemas
+        ├── state/             analysis context, shared replay clock
+        ├── components/        uploader, viewer, region editor, replay transport,
+        │                      map, charts, evidence panels, print brief,
+        │                      recent analyses panel, degraded-mode banner
+        ├── pages/             Home, Analysis, Simulation, NotFound
+        ├── test/setup.ts      jest-dom matchers for Testing Library
+        ├── utils/format.ts    shared formatting
+        └── *.test.ts(x)       50 tests, colocated with what they cover
 ```
+
+---
+
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the development setup, the one-directional
+layering rule, the seven house rules the test suite defends, and how to
+write a test that can actually fail.
 
 ---
 

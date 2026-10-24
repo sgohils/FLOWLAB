@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from statistics import fmean, median
 
 from ..models.schemas import Trajectory
@@ -68,7 +69,7 @@ ROLLING_WINDOW = 30.0
 
 
 def headways(times: Sequence[float]) -> list[float]:
-    return [b - a for a, b in zip(times, times[1:]) if b - a > 0]
+    return [b - a for a, b in pairwise(times) if b - a > 0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +127,9 @@ def flow_statistics(
     )
 
 
-def rolling_rate(times: Sequence[float], window_seconds: float, step: float) -> list[tuple[float, float]]:
+def rolling_rate(
+    times: Sequence[float], window_seconds: float, step: float
+) -> list[tuple[float, float]]:
     """Vehicles per minute in a sliding window, used by the event timeline."""
     if not times or window_seconds <= 0:
         return []

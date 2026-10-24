@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { ApiHealthBanner } from "../components/ApiHealthBanner";
 import { PipelineFlow } from "../components/PipelineFlow";
 import { ProcessingStatus } from "../components/ProcessingStatus";
+import { RecentAnalyses } from "../components/RecentAnalyses";
 import { VideoUploader } from "../components/VideoUploader";
 import { Button, Label, Panel, Section } from "../components/Primitives";
 import { useAnalysis } from "../state/AnalysisContext";
@@ -105,6 +107,8 @@ export default function Home() {
         <PipelineFlow />
       </section>
 
+      <ApiHealthBanner />
+
       <div id="upload">
         <Section
           title="Upload"
@@ -121,6 +125,13 @@ export default function Home() {
           )}
         </Section>
       </div>
+
+      <Section
+        title="Saved analyses"
+        subtitle="The most recent analyses already on this machine, up to 100 of them. Reopen one, or delete it together with its files."
+      >
+        <RecentAnalyses currentId={analysis?.analysis_id ?? null} />
+      </Section>
 
       <Section title="What you get" subtitle="Four screens, one pipeline, no black box.">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

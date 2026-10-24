@@ -18,9 +18,12 @@ This report separates two questions that are easy to confuse:
 
 **Why this is valid:** the bundled demo scene is *rendered from* a corridor
 simulation, so the generator knows where every vehicle was at every instant. The
-reference series is rebuilt from those positions with the same rule the
-analytics use ("inside the queue region and below the speed threshold"). Any
-disagreement is a difference in the measurement code, not a detector error.
+reference file carries **two** series rebuilt from those positions, so each
+quantity can be checked against a ground truth built with the same rule:
+`occupancy_counts` ("inside the queue region", at any speed, no hold) and
+`queue_counts` ("inside the queue region and below the speed threshold", no
+hold). Any disagreement is a difference in the measurement code, not a detector
+error.
 
 **Command**
 
@@ -39,22 +42,40 @@ free-flow time 11 s, rendered at 10 fps.
 | --- | --- | --- | --- |
 | Arrivals in the window | 26 | 26 | **0** (0.0 %) |
 | Exit crossings in the window | 26 | 26 | **0** (0.0 %) |
-| Queue length, 1350 instants | — | — | mean abs. error **0.211 vehicles**, max **3**, exact on **79.8 %** of instants |
+| Region occupancy, 1350 instants | occupancy counts | occupancy series | mean abs. error **0.028 vehicles**, max **1**, exact on **97.2 %** of instants |
+| Queue length, 1350 instants (slow rule) | slow-rule counts | queued series | mean abs. error **0.188 vehicles**, max **2**, exact on **81.8 %** of instants |
 
-### Interpreting the residual queue error
+Two different quantities, deliberately reported separately; `compares_against` in
+`docs/validation-measurement.json` names which pair each row used.
 
-Every disagreement has the same sign: the pipeline reports **fewer** vehicles
-queued than the raw rule (697 of 727 differing instants are lower). The pattern
-is a constant offset of 1–3 during a growing queue.
+**Re-run 2026-09-30 and unchanged.** The command above was executed again after
+the improvement pass; it prints the same 26/26 arrivals, 26/26 exit crossings,
+0.028 vehicles mean absolute error on region occupancy (max 1, exact-match rate
+0.9719) and 0.188 on the queued series against the slow-rule counts (max 2,
+exact-match rate 0.8185). Nothing in this pass touched a measurement
+definition, and the numbers say so. The verbatim output is in
+[`VERIFICATION.md`](VERIFICATION.md) section 3.
 
-That is the deliberate `min_queue_seconds` stability rule (default **0.5 s**): a
-vehicle must stay continuously below the speed threshold for half a second
-before it is counted as queued. The reference applies the raw rule with no such
-hold, so during a queue that is growing, the pipeline is up to 0.5 s behind by
-construction. This is a *documented definition difference*, not an error, and it
-is visible in the UI as "Minimum queue time before a vehicle counts".
+### Interpreting the two queue figures
 
-Set the threshold to 0 in the region editor and the two series agree exactly.
+**The first row is like for like.** Both sides count every vehicle geometrically
+inside the polygon at any speed, with no hold, so the residual is **0.028
+vehicles** and never exceeds 1. It is not zero because the series stored in the
+analysis is thinned to 675 samples for the chart, and a thinned sample reports
+the **maximum** of its bucket, so an instant is matched to a value that may
+include its neighbour: of the 38 instants that differ, 34 read one vehicle high
+and 4 one low. Compared against the unthinned 1350-instant grid the same
+reference agrees to a mean absolute error of **0.001 vehicles**, with a single
+differing instant.
+
+**The second row compares two different things on purpose.** The reference's
+slow series applies the speed filter with **no** hold, while the application
+holds a vehicle out of the count until it has been continuously slow for
+`min_queue_seconds` (default **0.5 s**). That is why the pipeline reads lower
+than the raw rule while a queue is growing, and it is a *documented definition
+difference*, not an error: it is visible in the UI as "Minimum queue time before
+a vehicle counts". It is reported as its own block rather than folded into the
+headline so that the like-for-like figure above is never diluted by it.
 
 ### Two real defects this validation found
 
@@ -74,6 +95,8 @@ Set the threshold to 0 in the region editor and the two series agree exactly.
 ## Part B — Detector and tracker on real footage (PENDING)
 
 **Status: not validated.** No accuracy number is claimed.
+
+The comparison now runs against the **region-occupancy** series — every vehicle geometrically inside the queue polygon, at any speed — which is like-for-like with a hand-taken count, and it reports the application's **queued** count (inside the polygon *and* below the speed threshold for at least `min_queue_seconds`) as a separate block, so the two definitions are never conflated. This part is still PENDING because no student annotations exist yet.
 
 To complete this part you need a clip you are permitted to use, plus annotations
 you write yourself. The tooling is complete and tested:
@@ -137,9 +160,12 @@ observation. That check requires your clip and your annotations.
 ## Reproducing everything in this report
 
 ```bash
-# environment
+# environment and gates
 python -m backend.scripts.doctor
-python -m pytest backend/tests -q
+python -m ruff check backend
+python -m mypy
+python -m pytest              # 277 backend tests
+cd frontend && npm test      # 50 frontend tests
 
 # regenerate the demo and its ground truth, then re-run Part A
 python -m backend.scripts.build_demo_dataset

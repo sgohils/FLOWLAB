@@ -1,9 +1,57 @@
-/** Small formatting helpers shared by the metric cards, charts and tables. */
+/**
+ * The one formatting module.  Every number the interface shows goes through a
+ * helper here, so a missing measurement reads the same everywhere: an em dash
+ * rather than a misleading zero.
+ */
 
 export function formatNumber(value: number | null | undefined, digits = 1): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(digits);
+}
+
+/** A number followed by its unit, e.g. "12.4 s".  Unknown values read as "—". */
+export function formatWithUnit(
+  value: number | null | undefined,
+  unit: string,
+  digits = 1,
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${formatNumber(value, digits)} ${unit}`;
+}
+
+/**
+ * A value at a fixed number of decimal places, e.g. 0.5 -> "0.50".
+ *
+ * Unlike `formatNumber` this never drops trailing zeros, so a column of
+ * coordinates, indices or path positions stays aligned.
+ */
+export function formatFixed(
+  value: number | null | undefined,
+  digits: number,
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return value.toFixed(digits);
+}
+
+/** A fraction of one rendered as a percentage, e.g. 0.157 -> "15.7%". */
+export function formatPercent(
+  value: number | null | undefined,
+  digits = 1,
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${formatNumber(value * 100, digits)}%`;
+}
+
+/** A signed change against a baseline: "+2.4", "−1.0", "0" for no change. */
+export function formatSigned(
+  value: number | null | undefined,
+  digits = 1,
+  suffix = "",
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${formatNumber(Math.abs(value), digits)}${suffix}`;
 }
 
 export function formatSeconds(value: number | null | undefined): string {

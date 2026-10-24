@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import json
 import math
+from typing import Any
 
 from ..analytics.metrics import build_analysis
 from ..config import BACKEND_DIR, ensure_directories, settings
 from ..models.schemas import Regions, Trajectory, TrajectoryPoint, VideoInfo
-from ..simulation.simulator import simulate
+from ..simulation.simulator import SimulationRun, simulate
 
 OUTPUT = BACKEND_DIR / "demo" / "sample_analysis.json"
 REFERENCE = BACKEND_DIR / "demo" / "sample_reference.json"
@@ -97,7 +98,11 @@ def _project(corridor_position: float, lane: float, spread: float) -> tuple[floa
     measured service time would be meaningless.
     """
     taper = max(0.0, 1.0 - corridor_position**3)
-    x = SCENE_START[0] + SCENE_SPAN[0] * corridor_position + (lane * LANE_SPREAD * 0.5 + spread * 0.6) * taper
+    x = (
+        SCENE_START[0]
+        + SCENE_SPAN[0] * corridor_position
+        + (lane * LANE_SPREAD * 0.5 + spread * 0.6) * taper
+    )
     y = SCENE_START[1] + SCENE_SPAN[1] * corridor_position + (lane * LANE_SPREAD + spread) * taper
     return (min(0.99, max(0.01, x)), min(0.99, max(0.01, y)))
 
@@ -129,7 +134,7 @@ def build_trajectories() -> tuple[list[Trajectory], object]:
                     speed = math.dist((x, y), previous) / elapsed
             points.append(
                 TrajectoryPoint(
-                    frame=int(round(moment * SAMPLE_FPS)),
+                    frame=round(moment * SAMPLE_FPS),
                     time=round(moment, 3),
                     x=round(x, 5),
                     y=round(y, 5),
@@ -190,7 +195,7 @@ def measurement_regions() -> Regions:
     )
 
 
-def ground_truth(run, regions: Regions) -> dict:
+def ground_truth(run: SimulationRun, regions: Regions) -> dict[str, Any]:
     """The exact values the synthetic scene was built from.
 
     The demo trajectories are *rendered from* a corridor simulation, so the
@@ -251,6 +256,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-

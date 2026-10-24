@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   CartesianGrid,
@@ -12,11 +12,19 @@ import {
 } from "recharts";
 import { ApiError, api } from "../api/client";
 import { CorridorComparison } from "../components/CorridorComparison";
-import { SimulationPanel } from "../components/SimulationPanel";
-import { Button, Label, Notice, Panel, Section } from "../components/Primitives";
+import { CorridorMap } from "../components/CorridorMap";
+import type { ScenarioPreset } from "../components/SimulationPanel";
+import { describePresets, offlinePresets, SimulationPanel } from "../components/SimulationPanel";
+import { Button, Label, Notice, Panel, Row, Section } from "../components/Primitives";
 import { useAnalysis } from "../state/AnalysisContext";
 import type { Scenario, SimulationResult } from "../types";
-import { deltaTone, formatNumber, formatTimecode } from "../utils/format";
+import {
+  deltaTone,
+  formatNumber,
+  formatSigned,
+  formatTimecode,
+  formatWithUnit,
+} from "../utils/format";
 
 const DEFAULTS = {
   volume: 1,
@@ -33,10 +41,41 @@ export default function Simulation() {
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string | null } | null>(null);
+  const [presets, setPresets] = useState<ScenarioPreset[]>(() => offlinePresets());
+  const [presetsOffline, setPresetsOffline] = useState(true);
 
   useEffect(() => {
     if (routeId) void load(routeId);
   }, [routeId, load]);
+
+  /**
+   * The backend owns which experiments it offers, so ask it rather than
+   * hard-coding the list.  The built-in list stays as the offline fallback.
+   */
+  useEffect(() => {
+    if (!analysisId) return;
+    let cancelled = false;
+    api
+      .presets(analysisId)
+      .then((scenarios) => {
+        if (cancelled) return;
+        // describePresets drops anything it cannot word honestly, so an all
+        // malformed payload has to fall through to the built-in list rather
+        // than leave the panel with no experiments at all.
+        const described = describePresets(scenarios);
+        if (!described.length) throw new Error("no usable presets returned");
+        setPresets(described);
+        setPresetsOffline(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPresets(offlinePresets());
+        setPresetsOffline(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisId]);
 
   const run = async () => {
     if (!analysisId) return;
@@ -152,6 +191,8 @@ export default function Simulation() {
               serviceTime={analysis?.calibration.service_time_seconds ?? null}
               stale={stale}
               disabled={!analysis}
+              presets={presets}
+              presetsOffline={presetsOffline}
             />
           </Section>
 
@@ -159,9 +200,18 @@ export default function Simulation() {
             <Section title="Observed baseline">
               <Panel className="p-4">
                 <dl className="space-y-1.5 text-[13px]">
-                  <Row label="Arrival rate" value={`${formatNumber(analysis.calibration.arrival_rate_per_minute)} /min`} />
-                  <Row label="Exit service time" value={`${formatNumber(analysis.calibration.service_time_seconds)} s`} />
-                  <Row label="Free-flow time" value={`${formatNumber(analysis.calibration.free_flow_seconds)} s`} />
+                  <Row
+                    label="Arrival rate"
+                    value={formatWithUnit(analysis.calibration.arrival_rate_per_minute, "/min")}
+                  />
+                  <Row
+                    label="Exit service time"
+                    value={formatWithUnit(analysis.calibration.service_time_seconds, "s")}
+                  />
+                  <Row
+                    label="Free-flow time"
+                    value={formatWithUnit(analysis.calibration.free_flow_seconds, "s")}
+                  />
                   <Row label="Vehicles in clip" value={formatNumber(analysis.calibration.vehicles_used, 0)} />
                 </dl>
                 <p className="mt-3 text-[11px] leading-relaxed text-ink-faint">
@@ -225,10 +275,8 @@ export default function Simulation() {
                               : "text-ink-faint"
                         }`}
                       >
-                        {delta.absolute > 0 ? "+" : ""}
-                        {formatNumber(delta.absolute)} vs baseline
-                        {delta.percent !== null &&
-                          ` (${delta.percent > 0 ? "+" : ""}${delta.percent.toFixed(0)}%)`}
+                        {formatSigned(delta.absolute)} vs baseline
+                        {delta.percent !== null && ` (${formatSigned(delta.percent, 0, "%")})`}
                       </p>
                     </Panel>
                   ))}
@@ -252,8 +300,7 @@ export default function Simulation() {
                           </span>
                         </div>
                         <p className="mt-1 font-mono text-[11px] text-ink-faint">
-                          {delta.absolute > 0 ? "+" : ""}
-                          {formatNumber(delta.absolute)} {delta.unit}
+                          {formatSigned(delta.absolute)} {delta.unit}
                         </p>
                       </div>
                     ))}
@@ -343,23 +390,81 @@ export default function Simulation() {
                     <dl className="mt-3 space-y-1 text-[12px]">
                       <Row
                         label="Observed peak queue (A)"
-                        value={`${result.fidelity.peak_queue_observed} vehicles`}
+                        value={formatWithUnit(result.fidelity.peak_queue_observed, "vehicles")}
                       />
                       <Row
                         label="Baseline model peak queue (B)"
-                        value={`${result.fidelity.peak_queue_model} vehicles`}
+                        value={formatWithUnit(result.fidelity.peak_queue_model, "vehicles")}
                       />
                       <Row
                         label="Observed mean wait (A)"
-                        value={`${formatNumber(result.fidelity.average_wait_observed)} s`}
+                        value={formatWithUnit(result.fidelity.average_wait_observed, "s")}
                       />
                       <Row
                         label="Baseline model mean wait (B)"
-                        value={`${formatNumber(result.fidelity.average_wait_model)} s`}
+                        value={formatWithUnit(result.fidelity.average_wait_model, "s")}
                       />
                     </dl>
                   </Panel>
                 </div>
+
+                {result.sensitivity && (
+                  <Panel className="p-4">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <Label>Sensitivity range — {result.sensitivity.parameter}</Label>
+                      <span className="font-mono text-[11px] text-ink-faint">
+                        baseline {formatNumber(result.sensitivity.baseline_value)} s
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+                      {result.sensitivity.method} {result.sensitivity.note}
+                    </p>
+                    <table className="mt-3 w-full border-collapse text-left text-[12px]">
+                      <thead>
+                        <tr className="border-b border-rule text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+                          <th className="py-1.5 pr-3 font-medium">Service time</th>
+                          <th className="py-1.5 pr-3 font-medium">Peak queue</th>
+                          <th className="py-1.5 pr-3 font-medium">Mean wait</th>
+                          <th className="py-1.5 font-medium">Throughput</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.sensitivity.values.map((point) => (
+                          <tr
+                            key={point.service_time_seconds}
+                            className="border-b border-rule-soft last:border-0"
+                          >
+                            <td className="py-1.5 pr-3 font-mono">
+                              {formatNumber(point.service_time_seconds)} s
+                            </td>
+                            <td className="py-1.5 pr-3 font-mono">{point.peak_queue}</td>
+                            <td className="py-1.5 pr-3 font-mono">
+                              {formatNumber(point.average_wait_seconds)} s
+                            </td>
+                            <td className="py-1.5 font-mono">
+                              {formatNumber(point.throughput_per_minute)}/min
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="mt-3 text-[11px] leading-relaxed text-ink-soft">
+                      Across those alternatives the baseline peak queue ranges from{" "}
+                      <span className="font-mono">{result.sensitivity.peak_queue_range[0]}</span> to{" "}
+                      <span className="font-mono">{result.sensitivity.peak_queue_range[1]}</span>{" "}
+                      vehicles and the mean wait from{" "}
+                      <span className="font-mono">
+                        {formatNumber(result.sensitivity.average_wait_range[0])} s
+                      </span>{" "}
+                      to{" "}
+                      <span className="font-mono">
+                        {formatNumber(result.sensitivity.average_wait_range[1])} s
+                      </span>
+                      . Any scenario effect smaller than that spread should not be
+                      read as a real difference.
+                    </p>
+                  </Panel>
+                )}
               </div>
             )}
           </Section>
@@ -369,7 +474,10 @@ export default function Simulation() {
               title="Watch the two models"
               subtitle="The same corridor, the same arrivals, one change - drawn from the simulator's own recorded states."
             >
-              <CorridorComparison result={result} />
+              <div className="space-y-6">
+                <CorridorMap result={result} />
+                <CorridorComparison result={result} />
+              </div>
             </Section>
           )}
         </div>
@@ -378,14 +486,28 @@ export default function Simulation() {
   );
 }
 
+interface ComparisonPoint {
+  time: number;
+  observed: number;
+  baseline: number | null;
+  simulated: number | null;
+}
+
 function ComparisonChart({ result }: { result: SimulationResult }) {
-  const data = result.observed_queue.map((sample, index) => ({
-    time: sample.time,
-    observed: sample.queue,
-    baseline: result.baseline_queue[index]?.queue ?? null,
-    simulated: result.simulated_queue[index]?.queue ?? null,
-  }));
-  const lastTime = data.length ? (data[data.length - 1].time as number) : 1;
+  // Recharts re-reads `data` on every render, and this page re-renders whenever
+  // a control moves, so the series is built once per result rather than per
+  // render.
+  const data = useMemo<ComparisonPoint[]>(
+    () =>
+      result.observed_queue.map((sample, index) => ({
+        time: sample.time,
+        observed: sample.queue,
+        baseline: result.baseline_queue[index]?.queue ?? null,
+        simulated: result.simulated_queue[index]?.queue ?? null,
+      })),
+    [result],
+  );
+  const lastTime = data.length > 0 ? data[data.length - 1].time : 1;
   return (
     <div className="h-[280px] w-full">
       <Comparison data={data} maxTime={lastTime} />
@@ -393,16 +515,20 @@ function ComparisonChart({ result }: { result: SimulationResult }) {
   );
 }
 
-function Comparison({
-  data,
-  maxTime,
-}: {
-  data: Record<string, number | null>[];
-  maxTime: number;
-}) {
+const MARGIN = { top: 8, right: 16, left: -16, bottom: 0 };
+const TOOLTIP_STYLE = {
+  border: "1px solid #dcdcd6",
+  borderRadius: 4,
+  fontSize: 12,
+  fontFamily: "ui-monospace, monospace",
+};
+const LEGEND_STYLE = { fontSize: 12, paddingTop: 6 };
+const LABEL_FORMATTER = (value: unknown) => `t = ${formatTimecode(Number(value))}`;
+
+function Comparison({ data, maxTime }: { data: ComparisonPoint[]; maxTime: number }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+      <LineChart data={data} margin={MARGIN}>
         <CartesianGrid strokeDasharray="2 4" vertical={false} />
         <XAxis
           dataKey="time"
@@ -412,16 +538,8 @@ function Comparison({
           tickCount={7}
         />
         <YAxis allowDecimals={false} width={44} />
-        <Tooltip
-          labelFormatter={(value) => `t = ${formatTimecode(Number(value))}`}
-          contentStyle={{
-            border: "1px solid #dcdcd6",
-            borderRadius: 4,
-            fontSize: 12,
-            fontFamily: "ui-monospace, monospace",
-          }}
-        />
-        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
+        <Tooltip labelFormatter={LABEL_FORMATTER} contentStyle={TOOLTIP_STYLE} />
+        <Legend wrapperStyle={LEGEND_STYLE} />
         <Line
           type="monotone"
           dataKey="observed"
@@ -458,14 +576,6 @@ function Comparison({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-ink-faint">{label}</dt>
-      <dd className="font-mono text-ink">{value}</dd>
-    </div>
-  );
-}
 
 function SummaryRow({
   label,

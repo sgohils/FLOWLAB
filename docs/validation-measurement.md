@@ -1,6 +1,6 @@
 # Validation report
 
-Generated 2026-09-27T17:34:33 by `backend.scripts.validate_against_reference`.
+Generated 2026-09-28T23:43:58 by `backend.scripts.validate_against_reference`.
 
 ## Clip
 
@@ -29,12 +29,27 @@ Generated 2026-09-27T17:34:33 by `backend.scripts.validate_against_reference`.
 | max wait s | 43.9 |
 | throughput per min | 11.56 |
 
-## Queue length agreement
+## Queue length against your counts
+
+compared against: **region occupancy (vehicles inside the polygon, any speed)**
 
 - reference points: **1350**, matched: **1350**
-- mean absolute error: **0.211 vehicles**
-- maximum absolute error: **3 vehicles**
-- exact agreement: **79.8%** of matched instants
+- mean absolute error: **0.028 vehicles**
+- maximum absolute error: **1 vehicles**
+- exact agreement: **97.2%** of matched instants
+
+Matching aggregate counts do **not** prove that individual vehicles were detected and tracked correctly: a missed vehicle and a duplicate id cancel out in a total.
+
+## Queue length, application definition (reported separately)
+
+compared against: **queued (inside polygon AND below speed threshold for >= min_queue_seconds)**
+
+- reference points: **1350**, matched: **1350**
+- mean absolute error: **0.188 vehicles**
+- maximum absolute error: **2 vehicles**
+- exact agreement: **81.8%** of matched instants
+
+This block is **not** a like-for-like comparison with a human count. It shows how much of the difference above is the speed-and-hold rule rather than the detector.
 
 ## Exit crossings
 
@@ -48,4 +63,4 @@ Generated 2026-09-27T17:34:33 by `backend.scripts.validate_against_reference`.
 
 ## Reference notes
 
-Ground truth rebuilt from the simulator's own per-vehicle positions using the same 'inside the region and below the speed threshold' rule as the analytics. It validates the measurement layer only and says nothing about detector accuracy.
+Ground truth rebuilt from the simulator's own per-vehicle positions. occupancy_counts applies the same purely geometric rule as the application's region occupancy series (inside the region, any speed, no hold), so it is the like-for-like ground truth for a hand-taken count. queue_counts applies the 'inside the region and below the speed threshold' rule as the analytics do and is the ground truth for the slow count. It validates the measurement layer only and says nothing about detector accuracy.

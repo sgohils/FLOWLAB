@@ -7,12 +7,16 @@ variables, which keeps the Docker image and local development in sync.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BACKEND_DIR.parent
+
+logger = logging.getLogger(__name__)
 
 
 def _env_str(name: str, default: str) -> str:
@@ -38,6 +42,107 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(name: str, default: str) -> tuple[str, ...]:
+    """Split a comma-separated environment variable, dropping empty entries."""
+    return tuple(
+        part.strip() for part in _env_str(name, default).split(",") if part.strip()
+    )
+
+
+#: Host names that name this machine and nothing else.  Membership is tested as
+#: whole strings, never as substrings: ``localhost.evil.com`` is a routable host
+#: that merely begins with an allowed name, and an ``"localhost" in origin`` test
+#: would wave it through.
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: The shape of an accepted entry, quoted verbatim in the error message so
+#: the operator does not have to guess what "loopback origin" excludes.
+CORS_ORIGIN_FORMAT = "http(s)://<localhost|127.0.0.1|[::1]>[:port]"
+
+#: Escape hatch for the one case where a wider list is legitimate: an
+#: authenticating proxy in front of the API, as the DEFAULT_CORS_ORIGINS
+#: note below anticipates.  Off unless an operator sets it to "1", it is
+#: validated by nothing, and it logs every origin it allowed.
+UNSAFE_CORS_FLAG = "FLOWLAB_ALLOW_UNSAFE_CORS"
+
+
+def is_loopback_origin(origin: str) -> bool:
+    """True for an http(s) origin whose host is this machine.
+
+    A CORS origin is a scheme, a host and an optional port; a path is
+    meaningless and credentials are never legitimate.  ``urlsplit`` does the
+    parsing: ``hostname`` lowercases the host and strips the brackets from
+    ``[::1]``, and a value with no scheme at all (``localhost:5173``) has no
+    host, so it is refused rather than guessed at.
+    """
+    try:
+        parts = urlsplit(origin)
+        host = parts.hostname
+    except ValueError:  # a port that is not a number, e.g. "localhost:99999"
+        return False
+    return (
+        parts.scheme in {"http", "https"}
+        and not parts.username
+        and not parts.password
+        and host is not None
+        and host.lower() in LOOPBACK_HOSTS
+    )
+
+
+def _cors_rejection(name: str, origin: str) -> ValueError:
+    """The error for one refused entry: what it was, why, and what is accepted."""
+    if origin == "*":
+        reason = (
+            "A wildcard is the one value that must never be accepted here: it "
+            "lets every site the user visits read every stored analysis, and "
+            "this API has no authentication of any kind."
+        )
+    else:
+        reason = (
+            "This API has no authentication, so its browser origin list is the "
+            "only access boundary there is and it stays on this machine."
+        )
+    return ValueError(
+        f"{name} contains {origin!r}, which is not an accepted origin. {reason} "
+        f"Accepted entries are {CORS_ORIGIN_FORMAT} - for example "
+        f"'http://localhost:5173'. Put authentication in front of the API before "
+        f"widening it, or set {UNSAFE_CORS_FLAG}=1 to accept this list deliberately."
+    )
+
+
+def _env_origins(name: str = "FLOWLAB_CORS_ORIGINS") -> tuple[str, ...]:
+    """Resolve *and validate* the browser origin allow-list.
+
+    A refused entry raises rather than warns.  Dropping it silently is how a
+    CORS mistake becomes invisible: an operator who widens the list would see
+    the API start and believe their host is allowed, when in fact nothing
+    changed, and a wildcard that survived into ``allow_origins=["*"]`` would
+    hand every page the user visits the stored trajectories.  Failing at
+    settings construction stops the process with a message that names the
+    value and the accepted form, which is the only outcome an operator can
+    act on.  The one escape is :data:`UNSAFE_CORS_FLAG`: never the default, and
+    loud when used.
+    """
+    origins = _env_list(name, ",".join(DEFAULT_CORS_ORIGINS))
+    if not origins:
+        # Empty means "unset": never "allow nothing" and never "allow all".
+        return DEFAULT_CORS_ORIGINS
+    if _env_bool(UNSAFE_CORS_FLAG, False):
+        logger.warning(
+            "%s is set, so %s is accepted without validation: %s. Every one of "
+            "those origins can read every stored analysis, because the API has "
+            "no authentication.",
+            UNSAFE_CORS_FLAG,
+            name,
+            ", ".join(origins),
+        )
+        return origins
+    for origin in origins:
+        if not is_loopback_origin(origin):
+            raise _cors_rejection(name, origin)
+    return origins
 
 
 def _env_roi(name: str = "FLOWLAB_ROI") -> tuple[float, float, float, float] | None:
@@ -67,6 +172,29 @@ COCO_CLASS_IDS: dict[str, int] = {
 
 #: Vehicles we are interested in, ordered by typical size in the scene.
 VEHICLE_CLASSES: tuple[str, ...] = ("car", "bus", "truck", "motorcycle", "bicycle")
+
+#: Browser origins allowed to call the API: the Vite dev server and the preview
+#: server, on loopback only.
+#:
+#: **The API has no authentication.**  There is no token, no session and no
+#: per-user identity, so this list is the only thing standing between a
+#: browser on the machine and every uploaded vehicle on it.  The API is bound
+#: to 127.0.0.1 for the same reason.  Widening ``FLOWLAB_CORS_ORIGINS`` to a
+#: routable host means any page that origin loads can read the raw tracks and
+#: the uploaded file paths, so keep it on loopback unless you have put
+#: authentication in front of the API.
+DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+)
+#:
+#: This is not documentation the reader is trusted to follow: :func:`_env_origins`
+#: refuses every entry that is not an http(s) loopback origin, ``*`` included, and
+#: ``build_settings`` raises on a refused one so the process will not start.  The
+#: escape hatch is ``FLOWLAB_ALLOW_UNSAFE_CORS=1``, for a deployment that really
+#: does have authentication in front of the API.
 
 
 @dataclass(slots=True)
@@ -128,6 +256,10 @@ class Settings:
     #: Uploads waiting for a worker before the API starts refusing them.
     max_queued_jobs: int
     keep_raw_tracks: bool
+    #: Browser origins allowed to call the API.  Loopback only: the API is
+    #: unauthenticated, so this list is its only access boundary.  Validated at
+    #: construction - see :func:`_env_origins`.
+    cors_origins: tuple[str, ...]
 
     @property
     def class_ids(self) -> list[int]:
@@ -175,6 +307,7 @@ def build_settings() -> Settings:
         max_concurrent_jobs=_env_int("FLOWLAB_MAX_JOBS", 1),
         max_queued_jobs=_env_int("FLOWLAB_MAX_QUEUED", 3),
         keep_raw_tracks=_env_bool("FLOWLAB_KEEP_RAW_TRACKS", True),
+        cors_origins=_env_origins(),
     )
 
 

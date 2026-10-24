@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models.schemas import Scenario
+from ..models.schemas import Calibration, Scenario
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,7 @@ def build_arrivals(
     if span <= 0:
         span = max(base[-1], 1.0)
 
-    count = max(1, int(round(len(base) * volume)))
+    count = max(1, round(len(base) * volume))
     arrivals: list[float] = []
     if count <= len(base):
         # Even decimation: keeps the first vehicle and the temporal spread.
@@ -85,10 +85,7 @@ def build_arrivals(
     first, last = arrivals[0], arrivals[-1]
     target_span = max(span + spread_seconds, 0.5)
     current_span = last - first
-    if current_span > 1e-6:
-        scale = target_span / current_span
-    else:
-        scale = 1.0
+    scale = target_span / current_span if current_span > 1e-6 else 1.0
     return [round(first + (t - first) * scale, 3) for t in arrivals]
 
 
@@ -97,7 +94,9 @@ def seed_factor(seed: int) -> float:
     return 0.5 + ((seed % 1000) / 1000.0)
 
 
-def plan_scenario(scenario: Scenario, calibration, observed_arrivals: list[float]) -> ScenarioPlan:
+def plan_scenario(
+    scenario: Scenario, calibration: Calibration, observed_arrivals: list[float]
+) -> ScenarioPlan:
     """Translate a :class:`Scenario` into concrete simulator inputs.
 
     Time window rule: with no spreading, the scenario runs over **exactly** the
@@ -131,7 +130,8 @@ def plan_scenario(scenario: Scenario, calibration, observed_arrivals: list[float
         )
     if scenario.spread_seconds > 0:
         notes.append(
-            f"Arrivals spread over {observation + scenario.spread_seconds:.0f}s instead of {observation:.0f}s."
+            f"Arrivals spread over {observation + scenario.spread_seconds:.0f}s "
+            f"instead of {observation:.0f}s."
         )
     if abs(scenario.service_multiplier - 1.0) > 1e-9:
         notes.append(

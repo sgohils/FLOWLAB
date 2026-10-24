@@ -137,6 +137,219 @@ damage was invisible in a diff and would have been easy to ship.
 
 ---
 
+## What the AI produced, part 3 — the fourth session
+
+The fourth session began with an assessment rather than an edit, and three of
+its findings were correctness or trust problems in work the AI had already done.
+
+### Defects the AI introduced earlier, found in this pass
+
+| Defect | How it was found | Status |
+| --- | --- | --- |
+| The queue chart could show a **smaller** peak than the metric card, because every-nth decimation silently drops a brief peak | wrote `trace_metric.py` to re-derive a value from raw samples, then probed the thinning directly with a synthetic one-instant spike | fixed: buckets keep the **max**, plus the ragged tail (3 tests) |
+| A fragmentation metric computed inside the AI's own new code compared a running total against a per-track count, reporting **913 % missing samples** | the number was impossible; traced to the loop | fixed, now 0 % on clean data |
+| The analyses list showed **33 vehicles for the demo** while the detail page showed 26, because the list reads the stored summary and the demo file had been regenerated | listing stored analyses after regenerating the demo | fixed: `register_demo()` refreshes the row from the bundled file (2 tests) |
+| On a clip with no vehicles, `why?`, the map and "Simulate a scenario" were all dead ends | uploaded a synthetic empty car park and looked at the page | fixed: reasons on unavailable cards, map empty state, simulate disabled |
+| Two earlier false "bugs" in this pass were the **test harness**, not the app: case-sensitive searches against CSS-uppercased text, and a same-hash navigation that never reloaded the page | read the rendered DOM instead of trusting a failed matcher | harness corrected; no product change |
+
+### Created or changed in this pass
+
+- `backend/scripts/trace_metric.py` — re-derives a displayed metric from the raw
+  samples and checks it against the grid, the API and the event list.
+- `Evidence` — a block of counts (crossings, completed versus censored visits,
+  tracking gaps, missing-sample share, window) surfaced as an "Evidence and
+  assumptions" panel, with a *thin evidence* warning.
+- `service_time_sensitivity` — a **sensitivity range** over the one estimated
+  parameter, explicitly not a confidence interval.
+- `MetricCard.unavailableReason`, a map empty state, a disabled simulate link,
+  and a demo-header fix that omits a meaningless file size.
+- `docs/PROJECT_ASSESSMENT.md`, `docs/VERIFICATION.md`, and decisions D11–D14 in
+  `docs/ENGINEERING_DECISIONS.md`.
+
+### What this pass did not do
+
+- It did not re-tune the demo scene. The sensitivity range makes the model's
+  dependence on the estimated service time visible rather than hiding it.
+- It did not add a confidence score, because none has been computed.
+- It did not annotate real footage.
+
+---
+
+## What the AI produced, part 4 — the fifth session (2026-09-29)
+
+### The design decision is the AI's
+
+The user set out the problem — the annotator instructions describe a pure
+region count, the application reports slow-and-held vehicles, and the validation
+report could not say which of a missed detection, a duplicate id or a definition
+gap produced a difference — and instructed the AI to resolve it. The AI chose
+**option (b)** of D15 in [`docs/ENGINEERING_DECISIONS.md`](ENGINEERING_DECISIONS.md):
+compare the human counts against a new region-occupancy series and report the
+queued count alongside it. The choice between the options, the reasoning and the
+stated failure case are the AI's, not the student's.
+
+### Written in this session
+
+- `build_region_occupancy_series` in `backend/analytics/queue_detection.py`, a
+  purely geometric count on the same grid as the queue series.
+- `Analysis.region_occupancy_timeseries` in `backend/models/schemas.py` and its
+  wiring in `backend/analytics/metrics.py`.
+- `backend/scripts/validate_against_reference.py`: the two comparison blocks,
+  their `compares_against` labels, and the fallback for results stored before
+  this change.
+- Five tests: four in `backend/tests/test_queue.py` and one in
+  `backend/tests/test_evidence.py`.
+- The D15 entry in `docs/ENGINEERING_DECISIONS.md`, and the rewrite of the
+  `queue_counts` and `queue_visits` instructions in
+  `backend/validation/README.md` so the annotator's rule matches what the
+  application measures.
+
+### What this session did not do
+
+- **The student has not annotated any footage.** No real clip has been compared
+  against a human count, before this change or after it. Part B of
+  `docs/VALIDATION_REPORT.md` remains PENDING and still contains no accuracy
+  number. Nothing above should be read as student work or as evidence of
+  detector accuracy.
+- It did not change the wait estimate, the summary, the calibration or the
+  evidence block; the application still defines "queued" exactly as it did.
+- That first change did not regenerate the demo dataset or the stored
+  validation report. A later change in the same session did; see below.
+
+### Later the same session
+
+The change above was followed by a second one, on the same day, once the
+comparison had actually been run.
+
+- The AI found that `backend/analytics/simulation_truth.py` — the generator
+  that produces the synthetic ground truth — emitted only `queue_counts`, the
+  SLOW rule, while `backend/scripts/validate_against_reference.py` had been
+  changed to compare the application against the new REGION OCCUPANCY series.
+  The two are different quantities, so the comparison was measuring the
+  difference between the speed-and-hold rule and a hand-taken count rather
+  than the detector. The defect was **masked at the time**: the stored demo
+  analysis predated the occupancy field, so the script fell back to the queued
+  series and the fallback was enough to make the run look consistent.
+- The fix was to give the ground truth an `occupancy_counts` series under the
+  same purely geometric rule, and to make the validation script prefer
+  `occupancy_counts` when the reference file carries one, labelling in
+  `compares_against` which reference series was used either way.
+- The AI then found that the figures quoted across the documentation
+  (**0.211 vehicles, max 3, 79.8 %**) were **stale**: they had been generated
+  before D11 changed the series thinning to a bucket maximum. A fresh run of
+  the same comparison read **0.188 vehicles, max 2, 81.8 % exact** for the
+  slow-rule block. The cause was established empirically, by re-running with
+  the reference held fixed and only the decimation varied, and is recorded as
+  D11 in `docs/ENGINEERING_DECISIONS.md`.
+- `backend/demo/sample_analysis.json`, `backend/demo/sample_reference.json`,
+  `docs/validation-measurement.md` and `docs/validation-measurement.json` were
+  regenerated, and the quoted figure was corrected in `README.md`,
+  `docs/VERIFICATION.md`, `docs/VALIDATION_REPORT.md`,
+  `docs/PROJECT_ASSESSMENT.md`, `docs/JUDGE_QA.md`, `docs/SUBMISSION_DRAFT.md`,
+  `docs/DEMO_SCRIPT.md` and `docs/ENGINEERING_DECISIONS.md`. The like-for-like
+  occupancy result — **0.028 vehicles, max 1, 97.2 % exact** — was added
+  alongside the slow-rule result wherever the figure is quoted. In
+  `docs/READINESS_AUDIT.md`, entry D22 was **deliberately not rewritten**: it
+  is a record of what was true when that defect was found, so a dated note
+  recording the superseded figure was appended instead.
+- `backend/tests/test_truth.py` was added, with six tests covering the new
+  reference series, the relationship between the two rules, the script's
+  preference for `occupancy_counts`, the labelled fallback, and a reference
+  carrying no count series at all.
+
+None of this was student work, and none of it is a real-world accuracy result:
+the ground truth is still produced by this project's own simulator, and no real
+clip has been compared against a human count. Part B of
+`docs/VALIDATION_REPORT.md` remains PENDING.
+
+---
+
+## What the AI produced, part 5 — the sixth session (2026-09-30)
+
+This session was an engineering pass, not a feature session, and it was
+AI-driven from end to end: the plan, the code, the test names, the commits'
+worthiness and this disclosure. Nothing in it is student work.
+
+### The two defects that had shipped
+
+These are the headline of this pass, and they are listed first because they are
+the argument for everything else in it.
+
+| Defect | How the AI found it | Status |
+| --- | --- | --- |
+| `backend/api/jobs.py` passed `status="error"` to a parameter named `status_value`, which collides with the helper's first positional argument, so `TypeError` was raised on the line *before* the database write in the job-failure path. Every failed analysis stayed at `processing` in SQLite until the next restart, and the user saw a job that would never finish. | enabling mypy, **not** a test: the previous suite had 200 tests and none of them exercised a failing analysis | fixed; `backend/tests/test_job_failure.py`, 4 tests, 3 of which fail if the old keyword returns |
+| `Database._connect()` returned a bare `sqlite3.Connection` and every caller used `with self._connect()`, which in sqlite3 ends a transaction and does not close the connection. Every read and every write leaked a handle. | setting `filterwarnings = ["error"]`, which turned the leak into 8 failing tests pointing at the line | fixed; `_connect()` is now a `@contextmanager` that closes in a `finally`; `backend/tests/test_database.py`, 6 tests |
+
+Both were in code the AI had written in an earlier session. Both had survived a
+review pass, a green suite, and repeated use of the application by hand. The
+honest conclusion is not "the AI made mistakes" - it is that the project had no
+mechanism that could have found them, and that is a process failure.
+
+### Further defects found and fixed in this session
+
+Backend: `backend/vision/__init__.py` exported `VehicleDetectionError`, a name
+that does not exist, so `from backend.vision import *` raised `AttributeError`;
+the single page app route served any path under its own name with no containment
+check; `PUT /analyses/{id}/regions` ignored the map-resolution query parameter
+that `GET .../result` honoured; `doctor.py` reported "ok" for dependency
+versions whatever was installed, which is how an OpenCV 5.0.0 install survived a
+declared `<5` bound.
+
+Frontend: a helper that threw on a malformed stored record; a replay cursor that
+disagreed with the backend before the first sample; a guard whose two branches
+were identical; a tooltip rendering the literal text `still queued}s`; a caption
+claiming a simplification the code did not perform; a menu with the wrong ARIA
+roles; two places where the TypeScript mirror of the API contract had drifted
+from the Pydantic model, once in each direction.
+
+Product and accessibility: two endpoints that existed, were tested and had no
+interface; scenario presets hardcoded in the frontend that had drifted from the
+endpoint serving them; a dead `CorridorMap` component; and on-screen help that
+promised a keyboard action nothing implemented.
+
+### What was created
+
+- `backend/geometry.py`, a dependency-free geometry module, with
+  `analytics/geometry.py` reduced to a re-export shim, so the schema layer and
+  the analytics layer can share one shoelace implementation without a cycle.
+- `pyproject.toml` (ruff, mypy, pytest with warnings-as-errors, coverage),
+  `backend/requirements-dev.txt`, `.editorconfig`, `.pre-commit-config.yaml`,
+  `.github/workflows/ci.yml`, a root `.dockerignore` and `CONTRIBUTING.md`.
+- A frontend test runner that did not exist: vitest, `@testing-library/react` and
+  jsdom, four test files, 50 tests.
+- Ten new backend test files' worth of coverage: 200 -> **277** tests, plus the
+  dead-code removal (including three `# type: ignore` comments and one
+  un-annotated parameter, all gone).
+
+### Were the verification commands actually run?
+
+Yes, and the output is pasted verbatim in [`VERIFICATION.md`](VERIFICATION.md)
+rather than summarised: the pytest run, ruff, mypy, the encoding check, the
+coverage table, the frontend typecheck, tests and build, the environment doctor,
+a traced metric and the ground-truth validation. Where a command could not run,
+it says so in that document rather than being quietly omitted: Docker is not
+installed, so `docker compose build` has never executed; CI has never executed;
+only Python 3.13 is present, so the 3.11 leg of the matrix has not run; and the
+browser was not re-driven, so this pass's interface changes are type-checked but
+unseen.
+
+### What this session did not do
+
+- It did not validate the detector on real footage. Part B of
+  `docs/VALIDATION_REPORT.md` is still PENDING and still contains no accuracy
+  number.
+- It did not soften a single limitation. The 0.54 model-mismatch factor, the
+  missing camera calibration, the unmeasured sampling sensitivity, the ambiguous
+  single-vehicle queue and the unverified container path are all still stated
+  plainly, in the same words.
+- It did not change any measurement definition. The ground-truth figures
+  (0.028 and 0.188 vehicles) were re-run and are unchanged.
+- It did not touch the Dockerfile, the CI workflow, `run.bat`/`run.sh` or any
+  frontend source file after the engineering waves finished; the documentation
+  pass that followed edited `README.md` and `docs/` and nothing else.
+
+---
+
 ## What the AI did not do
 
 - It did not invent a story about the project. The motivation, the school
@@ -162,7 +375,7 @@ Every change made in the second session followed the same loop:
 2. **Write the test that would have caught it.** The regression test was added
    alongside the fix, using hand-calculated expectations on small synthetic
    trajectories rather than snapshots of current behaviour.
-3. **Run the whole suite.** 142 tests, then the production build, then the
+3. **Run the whole suite.** The full suite, then the production build, then the
    browser.
 4. **Drive the interface, don't assume it.** The replay, the stale marker, the
    evidence panel and the print brief were each exercised through a headless
@@ -175,8 +388,9 @@ Every change made in the second session followed the same loop:
 The student is expected to be able to explain the code that ships. The questions
 in `docs/JUDGE_QA.md` were written to test exactly that, and the exercises in
 `docs/STUDENT_CONTRIBUTIONS.md` are the parts of the system the student should
-implement, change and defend personally. `docs/DECISIONS.md` records ten design
-decisions with their alternatives, so the student can challenge any of them.
+implement, change and defend personally. `docs/ENGINEERING_DECISIONS.md` records
+25 design decisions with their alternatives, the failure case each is exposed to
+and how it was tested, so the student can challenge any of them.
 
 ---
 

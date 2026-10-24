@@ -45,7 +45,7 @@ def draw_annotations(frame: np.ndarray, annotation: FrameAnnotation) -> np.ndarr
     """
     canvas = frame.copy()
     height, width = canvas.shape[:2]
-    thickness = max(1, int(round(min(width, height) * BOX_THICKNESS_RATIO)))
+    thickness = max(1, round(min(width, height) * BOX_THICKNESS_RATIO))
     font_scale = max(0.35, min(width, height) / 1100.0)
 
     for trail in annotation.trails:

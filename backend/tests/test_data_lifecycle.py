@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+from backend.analytics.metrics import build_analysis, serialise_analysis
 from backend.api import state as api_state
 from backend.api.exports import (
     PRIVACY_NOTE,
@@ -20,8 +21,7 @@ from backend.api.exports import (
     build_trajectories_csv,
     measurements_payload,
 )
-from backend.analytics.metrics import build_analysis, serialise_analysis
-from backend.config import settings, ensure_directories
+from backend.config import ensure_directories, settings
 from backend.models.schemas import VideoInfo
 from backend.storage import Database, annotated_path, upload_path, write_result
 from backend.tests.conftest import make_regions, make_track
@@ -49,7 +49,10 @@ def stored_analysis(tmp_path, monkeypatch):
         processed_fps=10.0,
         frame_count=200,
     )
-    tracks = [make_track(index, [(0.2, 0.6)] + [(0.5, 0.6)] * 4 + [(0.7, 0.6), (0.9, 0.6)]) for index in range(1, 4)]
+    tracks = [
+        make_track(index, [(0.2, 0.6)] + [(0.5, 0.6)] * 4 + [(0.7, 0.6), (0.9, 0.6)])
+        for index in range(1, 4)
+    ]
     analysis = build_analysis("deleteme", video, tracks, make_regions(), min_track_points=3)
 
     upload = upload_path(settings, "deleteme", "clip.mp4")
@@ -67,7 +70,7 @@ def stored_analysis(tmp_path, monkeypatch):
 
 
 def test_delete_removes_upload_annotated_video_and_result(stored_analysis):
-    analysis, database = stored_analysis
+    _analysis, database = stored_analysis
     assert upload_path(settings, "deleteme", "clip.mp4").exists()
     assert annotated_path(settings, "deleteme").exists()
 
@@ -82,7 +85,7 @@ def test_delete_removes_upload_annotated_video_and_result(stored_analysis):
 
 
 def test_delete_is_idempotent(stored_analysis):
-    analysis, database = stored_analysis
+    _analysis, _database = stored_analysis
     api_state.delete_analysis("deleteme")
     files, freed = api_state.delete_analysis("deleteme")
     assert files == 0
@@ -90,7 +93,7 @@ def test_delete_is_idempotent(stored_analysis):
 
 
 def test_delete_reports_nothing_left_behind(stored_analysis):
-    analysis, database = stored_analysis
+    _analysis, _database = stored_analysis
     api_state.delete_analysis("deleteme")
     leftovers = [
         path
@@ -193,7 +196,7 @@ def test_measurements_payload_defines_every_number(stored_analysis):
 
 
 def test_interrupted_jobs_are_marked_failed_on_startup(stored_analysis):
-    analysis, database = stored_analysis
+    _analysis, database = stored_analysis
     database.update("deleteme", status="processing", stage="detecting", progress=0.4)
     assert database.get("deleteme")["status"] == "processing"
 
@@ -207,7 +210,7 @@ def test_interrupted_jobs_are_marked_failed_on_startup(stored_analysis):
 
 
 def test_reconcile_leaves_completed_analyses_alone(stored_analysis):
-    analysis, database = stored_analysis
+    _analysis, database = stored_analysis
     assert api_state.reconcile_orphans() == 0
     assert database.get("deleteme")["status"] == "complete"
 

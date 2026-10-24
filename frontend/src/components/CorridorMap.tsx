@@ -1,9 +1,17 @@
+import { useMemo } from "react";
 import type { SimulationResult } from "../types";
+import {
+  formatFixed,
+  formatNumber,
+  formatWithUnit,
+} from "../utils/format";
 import { Label, Panel } from "./Primitives";
 
 const WIDTH = 960;
 const HEIGHT = 300;
 const MARGIN = { top: 26, right: 24, bottom: 34, left: 44 };
+/** Above this many tracks the drawing turns into a solid block, so thin it. */
+const MAX_TRACKS = 120;
 
 /**
  * Side view of the simulated corridor: position along the lane is the
@@ -11,11 +19,37 @@ const MARGIN = { top: 26, right: 24, bottom: 34, left: 44 };
  * one vehicle; the drop at the right end is the moment it was processed.
  */
 export function CorridorMap({ result }: { result: SimulationResult }) {
-  const tracks = result.tracks.filter((track) => track.points.length > 1);
-  const totalTime = Math.max(
-    ...tracks.map((track) => track.points[track.points.length - 1][0]),
-    result.simulated.observation_seconds,
-  );
+  // Every path and the axis scaling are rebuilt only when the result changes,
+  // not on each render of the surrounding page.
+  const { totalTime, step, paths } = useMemo(() => {
+    const eligible = result.tracks.filter((track) => track.points.length > 1);
+    const stride = Math.max(1, Math.ceil(eligible.length / MAX_TRACKS));
+    const drawn = eligible.filter((_, index) => index % stride === 0);
+    const span = Math.max(
+      ...drawn.map((track) => track.points[track.points.length - 1][0]),
+      result.simulated.observation_seconds,
+    );
+    const safeSpan = Math.max(span, 1);
+    const toX = (position: number) =>
+      MARGIN.left + position * (WIDTH - MARGIN.left - MARGIN.right);
+    const toY = (time: number) =>
+      MARGIN.top + (time / safeSpan) * (HEIGHT - MARGIN.top - MARGIN.bottom);
+    return {
+      totalTime: span,
+      step: stride,
+      paths: drawn.map((track) => ({
+        vehicleId: track.vehicle_id,
+        waited: (track.wait ?? 0) > 0,
+        d: track.points
+          .map(
+            ([time, position], index) =>
+              `${index === 0 ? "M" : "L"}${toX(position).toFixed(1)},${toY(time).toFixed(1)}`,
+          )
+          .join(" "),
+      })),
+    };
+  }, [result]);
+
   const scaleX = (position: number) =>
     MARGIN.left + position * (WIDTH - MARGIN.left - MARGIN.right);
   const scaleT = (time: number) =>
@@ -26,15 +60,18 @@ export function CorridorMap({ result }: { result: SimulationResult }) {
       <div className="px-1">
         <Label>Simulated corridor — vehicle tracks over time</Label>
         <p className="mt-1 text-[12px] text-ink-faint">
-          {result.tracks.length} of {result.simulated.vehicles} vehicles shown
-          (every nth vehicle, to keep the drawing readable).
+          {formatNumber(paths.length, 0)} of{" "}
+          {formatNumber(result.simulated.vehicles, 0)} vehicles drawn
+          {step > 1
+            ? ` — every ${formatNumber(step, 0)}th track, to keep the drawing readable.`
+            : "."}
         </p>
       </div>
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="mt-2 block w-full"
         role="img"
-        aria-label="Simulated vehicle tracks over time"
+        aria-label="Simulated vehicle tracks over time: position along the lane against time"
       >
         <rect
           x={MARGIN.left}
@@ -61,7 +98,7 @@ export function CorridorMap({ result }: { result: SimulationResult }) {
               fill="#7b8189"
               fontFamily="ui-monospace, monospace"
             >
-              {fraction === 0 ? "entry" : fraction === 1 ? "gate" : fraction.toFixed(2)}
+              {fraction === 0 ? "entry" : fraction === 1 ? "gate" : formatFixed(fraction, 2)}
             </text>
           </g>
         ))}
@@ -75,36 +112,27 @@ export function CorridorMap({ result }: { result: SimulationResult }) {
             fill="#7b8189"
             fontFamily="ui-monospace, monospace"
           >
-            {Math.round(fraction * totalTime)}s
+            {formatWithUnit(fraction * totalTime, "s", 0)}
           </text>
         ))}
 
-        {tracks.map((track, index) => {
-          const path = track.points
-            .map(
-              ([time, position], pointIndex) =>
-                `${pointIndex === 0 ? "M" : "L"}${scaleX(position).toFixed(1)},${scaleT(time).toFixed(1)}`,
-            )
-            .join(" ");
-          const waited = (track.wait ?? 0) > 0;
-          return (
-            <g key={track.vehicle_id}>
-              <path
-                d={path}
-                fill="none"
-                stroke={waited ? "#b45309" : "#1d4ed8"}
-                strokeOpacity={0.5 + (index % 5) * 0.08}
-                strokeWidth={1.5}
-                strokeLinecap="round"
-              />
-              <title>
-                {`Vehicle ${track.vehicle_id}: arrived ${track.arrival}s, wait ${
-                  track.wait?.toFixed(1) ?? "n/a"
-                }s, departed ${track.departure?.toFixed(1) ?? "still queued"}s`}
-              </title>
-            </g>
-          );
-        })}
+        {paths.map((path, index) => (
+          <g key={path.vehicleId}>
+            <path
+              d={path.d}
+              fill="none"
+              stroke={path.waited ? "#b45309" : "#1d4ed8"}
+              strokeOpacity={0.5 + (index % 5) * 0.08}
+              strokeWidth={1.5}
+              strokeLinecap="round"
+            />
+            <title>
+              {`Vehicle ${path.vehicleId}: ${
+                path.waited ? "waited in the queue" : "drove without stopping"
+              }`}
+            </title>
+          </g>
+        ))}
 
         <line
           x1={scaleX(1)}
@@ -117,10 +145,10 @@ export function CorridorMap({ result }: { result: SimulationResult }) {
       </svg>
       <div className="flex items-center gap-4 px-1 text-[11px] text-ink-faint">
         <span className="flex items-center gap-1.5">
-          <span className="h-[2px] w-4 bg-[#1d4ed8]" /> drove without stopping
+          <span aria-hidden="true" className="h-[2px] w-4 bg-[#1d4ed8]" /> drove without stopping
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-[2px] w-4 bg-[#b45309]" /> waited in the queue
+          <span aria-hidden="true" className="h-[2px] w-4 bg-[#b45309]" /> waited in the queue
         </span>
       </div>
     </Panel>

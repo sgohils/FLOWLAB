@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ValidationError
 
@@ -18,11 +19,14 @@ from ..models.schemas import (
     AnalysisListItem,
     DeleteResult,
     Health,
+    JobState,
     JobStatus,
     Regions,
+    Trajectory,
     VideoInfo,
 )
 from ..storage import read_result
+from .errors import api_error
 from .exports import (
     ExportBundle,
     build_events_csv,
@@ -36,7 +40,6 @@ from .state import (
     DEMO_ID,
     annotated_file,
     database,
-    delete_analysis as delete_files,
     demo_analysis,
     is_processing,
     jobs,
@@ -44,10 +47,39 @@ from .state import (
     save_analysis,
     source_file,
 )
+from .state import (
+    delete_analysis as delete_files,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
+
+#: Mirrors ``Health.status`` so the literal survives the try/except below.
+HealthValue = Literal["ok", "degraded"]
+
+#: 422 as a plain number, for the reason given in routes_upload.PAYLOAD_TOO_LARGE:
+#: starlette renamed the named constant and the old spelling now warns, which
+#: the pytest configuration treats as an error.
+UNPROCESSABLE_ENTITY = 422
+
+#: Trajectory down-sampling for the two endpoints that return a whole
+#: ``Analysis``.  Declared once so the map is thinned identically whether the UI
+#: refreshes a result or asks for it back after drawing new regions.
+TrajectoryPoints = Annotated[
+    int,
+    Query(ge=4, le=600, description="Maximum trajectory samples returned per vehicle."),
+]
+DEFAULT_TRAJECTORY_POINTS = 60
+
+#: The job states the status column may hold.  The column is free-form TEXT, so
+#: the stored value is looked up here rather than passed through unchecked.
+JOB_STATES: dict[str, JobState] = {
+    "queued": "queued",
+    "processing": "processing",
+    "complete": "complete",
+    "error": "error",
+}
 
 
 class RegionUpdate(BaseModel):
@@ -69,7 +101,7 @@ class MetaResponse(BaseModel):
     stages: list[dict[str, str]]
 
 
-def _require_analysis(analysis_id: str) -> tuple[Analysis, list]:
+def _require_analysis(analysis_id: str) -> tuple[Analysis, list[Trajectory]]:
     """Load the stored analysis together with the tracks used to measure it."""
     payload = read_result(settings, analysis_id)
     if payload:
@@ -77,7 +109,7 @@ def _require_analysis(analysis_id: str) -> tuple[Analysis, list]:
             return deserialise_analysis(payload)
         except ValueError as exc:
             logger.warning("Stored analysis %s is invalid: %s", analysis_id, exc)
-            raise HTTPException(
+            raise api_error(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 "The stored result for this analysis could not be read.",
             ) from exc
@@ -85,18 +117,29 @@ def _require_analysis(analysis_id: str) -> tuple[Analysis, list]:
         demo = demo_analysis()
         if demo is not None:
             return demo, demo.trajectories
-    raise HTTPException(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
+    raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
 
 
 @router.get("/health", response_model=Health)
 async def health() -> Health:
-    """Liveness plus a check that the detection model can be loaded."""
+    """Liveness plus a check that the detection model can be loaded.
+
+    Always 200, on purpose.  The browser banner has to be able to *read* why a
+    backend is degraded, and a non-200 body would leave the UI with nothing to
+    show; :func:`ready` is the endpoint that reports unusability to a machine.
+
+    The load runs in a worker thread.  On a cold backend it is a multi-second
+    torch import plus a weight read, and doing that inside the event loop stops
+    every other request from being served until it finishes - including the
+    second /api/health the UI fires on a Home mount, which is what made the stall
+    visible.
+    """
     from ..vision.detector import detector
 
     message: str | None = None
-    status_value = "ok"
+    status_value: HealthValue = "ok"
     try:
-        detector.load()
+        await asyncio.to_thread(detector.load)
     except Exception as exc:  # the API stays up so the UI can explain the problem
         status_value = "degraded"
         message = str(exc)
@@ -107,6 +150,24 @@ async def health() -> Health:
         model_name=settings.model_name,
         message=message,
     )
+
+
+@router.get("/ready", response_model=Health)
+async def ready(response: Response) -> Health:
+    """Readiness: 503 unless the detector is loaded and can serve an analysis.
+
+    This is the endpoint a container healthcheck has to call.  ``/api/health``
+    reports 200 for a backend that cannot detect anything, which is right for a
+    browser and wrong for orchestration: a container whose weights never loaded
+    would be called healthy, and anything gated on that (the dev server's
+    ``condition: service_healthy``) would start against an API that cannot
+    analyse a single frame.  The body is the same :class:`Health` payload, so a
+    failing probe says *why* in the log instead of only that it failed.
+    """
+    body = await health()
+    if not body.model_loaded:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return body
 
 
 @router.get("/meta", response_model=MetaResponse)
@@ -153,7 +214,7 @@ async def demo() -> Analysis:
     """The bundled demo dataset.  Always served with ``source='demo'``."""
     analysis = register_demo()
     if analysis is None:
-        raise HTTPException(
+        raise api_error(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "The demo dataset is not bundled with this build.",
         )
@@ -167,11 +228,18 @@ async def analysis_status(analysis_id: str) -> JobStatus:
         return job
     record = database.get(analysis_id)
     if record is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
+        raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
     video = VideoInfo.model_validate(record["video"]) if record.get("video") else None
+    recorded = str(record["status"])
+    if recorded not in JOB_STATES:
+        raise api_error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"This analysis is in an unknown state ('{recorded}').",
+            hint="Delete the analysis and run it again.",
+        )
     return JobStatus(
         analysis_id=analysis_id,
-        status="complete" if record["status"] == "complete" else record["status"],  # type: ignore[arg-type]
+        status=JOB_STATES[recorded],
         stage=record["stage"],
         progress=record["progress"],
         stages=[],
@@ -186,9 +254,7 @@ async def analysis_status(analysis_id: str) -> JobStatus:
 @router.get("/analyses/{analysis_id}/result", response_model=Analysis)
 async def analysis_result(
     analysis_id: str,
-    trajectory_points: int = Query(
-        default=60, ge=4, le=600, description="Maximum trajectory samples returned per vehicle."
-    ),
+    trajectory_points: TrajectoryPoints = DEFAULT_TRAJECTORY_POINTS,
 ) -> Analysis:
     """Full result.  Trajectories are down-sampled for the client by default."""
     analysis, _ = _require_analysis(analysis_id)
@@ -212,11 +278,20 @@ def _downsample(analysis: Analysis, limit: int) -> Analysis:
 
 
 @router.put("/analyses/{analysis_id}/regions", response_model=Analysis)
-async def update_regions(analysis_id: str, payload: RegionUpdate) -> Analysis:
-    """Re-measure with new regions.  No detection is repeated - this is fast."""
+async def update_regions(
+    analysis_id: str,
+    payload: RegionUpdate,
+    trajectory_points: TrajectoryPoints = DEFAULT_TRAJECTORY_POINTS,
+) -> Analysis:
+    """Re-measure with new regions.  No detection is repeated - this is fast.
+
+    ``trajectory_points`` behaves exactly as it does on ``GET .../result``: the
+    UI gets the same map resolution back whether it drew new regions or simply
+    reloaded the page.
+    """
     analysis, tracks = _require_analysis(analysis_id)
     if analysis.source == "demo":
-        raise HTTPException(
+        raise api_error(
             status.HTTP_400_BAD_REQUEST,
             "The demo dataset is read-only: upload a video to draw your own regions.",
         )
@@ -231,20 +306,20 @@ async def update_regions(analysis_id: str, payload: RegionUpdate) -> Analysis:
             created_at=analysis.created_at,
         )
     except ValidationError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        raise api_error(UNPROCESSABLE_ENTITY, str(exc)) from exc
     save_analysis(updated, raw_tracks=tracks)
     database.update(
         analysis_id,
         summary=updated.summary.model_dump(mode="json"),
     )
-    return _downsample(updated, 60)
+    return _downsample(updated, trajectory_points)
 
 
 @router.get("/analyses/{analysis_id}/video/annotated", response_class=FileResponse)
 async def annotated_video(analysis_id: str) -> FileResponse:
     path = annotated_file(analysis_id)
     if path is None:
-        raise HTTPException(
+        raise api_error(
             status.HTTP_404_NOT_FOUND,
             "No annotated video is available for this analysis.",
         )
@@ -255,7 +330,7 @@ async def annotated_video(analysis_id: str) -> FileResponse:
 async def original_video(analysis_id: str) -> FileResponse:
     path = source_file(analysis_id)
     if path is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "The source video is no longer on disk.")
+        raise api_error(status.HTTP_404_NOT_FOUND, "The source video is no longer on disk.")
     return FileResponse(path, media_type="video/mp4", filename=Path(path).name)
 
 
@@ -289,11 +364,11 @@ async def delete_analysis(analysis_id: str) -> DeleteResult:
     space was freed.  A running job is refused: it would recreate the files.
     """
     if analysis_id == DEMO_ID:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The demo dataset cannot be deleted.")
+        raise api_error(status.HTTP_400_BAD_REQUEST, "The demo dataset cannot be deleted.")
     if database.get(analysis_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
+        raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
     if is_processing(analysis_id):
-        raise HTTPException(
+        raise api_error(
             status.HTTP_409_CONFLICT,
             "This analysis is still being processed. Wait for it to finish before deleting it.",
         )
@@ -362,4 +437,3 @@ async def export_measurements(analysis_id: str) -> dict:
     """The headline numbers with units and definitions, as JSON."""
     analysis, _ = _require_analysis(analysis_id)
     return measurements_payload(analysis)
-

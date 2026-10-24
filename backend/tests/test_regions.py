@@ -8,7 +8,6 @@ from pydantic import ValidationError
 from backend.models.schemas import MIN_POLYGON_AREA, Regions
 from backend.tests.conftest import EXIT_LINE, make_regions, make_track
 
-
 # ----------------------------------------------------------------- validation
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from backend.models.schemas import Scenario
@@ -91,13 +93,13 @@ def test_plan_scenario_converts_multipliers():
 
 
 def _run(arrivals, **kwargs):
-    defaults = dict(
-        window_seconds=120.0,
-        free_flow_seconds=10.0,
-        service_time=3.0,
-        channels=1,
-        output_step=0.5,
-    )
+    defaults = {
+        "window_seconds": 120.0,
+        "free_flow_seconds": 10.0,
+        "service_time": 3.0,
+        "channels": 1,
+        "output_step": 0.5,
+    }
     defaults.update(kwargs)
     return simulate(arrivals, **defaults)
 
@@ -167,7 +169,7 @@ def test_vehicles_keep_their_order_and_gap():
     run = _run(arrivals)
     paths = {vehicle.vehicle_id: dict(vehicle.path) for vehicle in run.vehicles}
     identifiers = sorted(paths)
-    for earlier_id, later_id in zip(identifiers, identifiers[1:]):
+    for earlier_id, later_id in pairwise(identifiers):
         earlier, later = paths[earlier_id], paths[later_id]
         for moment in set(earlier) & set(later):
             if earlier[moment] >= 0.9 or later[moment] >= 0.9:

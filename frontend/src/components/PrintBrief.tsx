@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
-import { Button, Notice } from "./Primitives";
+import { Button, Notice, Row } from "./Primitives";
 import type { Analysis, Scenario, SimulationResult } from "../types";
-import { formatNumber, vehicleLabel } from "../utils/format";
-
+import { formatFixed, formatNumber, formatWithUnit, vehicleLabel } from "../utils/format";
 /**
  * A printable one-page analysis brief.
  *
  * It carries the evidence a reader needs to check the numbers - source, window,
- * regions, definitions, measured results, bottleneck evidence, the baseline
  * comparison, and every assumption - and deliberately contains **no footage**:
  * only anonymous trajectories and measurements.
  */
@@ -86,18 +84,18 @@ export function PrintBrief() {
           </p>
         </header>
 
-        <Section title="Source and observation window">
+        <PrintSection title="Source and observation window">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[13px] sm:grid-cols-3">
             <Row label="Source" value={analysis.source === "demo" ? "Demo Dataset" : "Uploaded clip"} />
-            <Row label="Duration" value={`${formatNumber(analysis.video.duration)} s`} />
+            <Row label="Duration" value={formatWithUnit(analysis.video.duration, "s")} />
             <Row label="Resolution" value={`${analysis.video.width}×${analysis.video.height}`} />
             <Row label="Source fps" value={formatNumber(analysis.video.fps)} />
             <Row label="Sampling" value={`${formatNumber(analysis.video.processed_fps)} fps`} />
             <Row label="Vehicles tracked" value={formatNumber(summary.vehicles_tracked, 0)} />
           </dl>
-        </Section>
+        </PrintSection>
 
-        <Section title="Measurement regions">
+        <PrintSection title="Measurement regions">
           <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
             <RegionFigure analysis={analysis} />
             <dl className="space-y-1.5 text-[13px]">
@@ -125,9 +123,9 @@ export function PrintBrief() {
               />
             </dl>
           </div>
-        </Section>
+        </PrintSection>
 
-        <Section title="Measured results">
+        <PrintSection title="Measured results">
           <table className="w-full border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b border-rule text-[10px] uppercase tracking-[0.12em] text-ink-faint">
@@ -139,42 +137,42 @@ export function PrintBrief() {
             <tbody>
               <TableRow
                 k="Peak queue"
-                v={`${formatNumber(summary.peak_queue, 0)} vehicles`}
+                v={formatWithUnit(summary.peak_queue, "vehicles", 0)}
                 d="most vehicles inside the queue region and below the speed threshold at one instant"
               />
               <TableRow
                 k="Average queue"
-                v={`${formatNumber(summary.average_queue)} vehicles`}
+                v={formatWithUnit(summary.average_queue, "vehicles")}
                 d="time-average of the queue length over the clip"
               />
               <TableRow
                 k="Est. wait (mean)"
-                v={`${formatNumber(summary.average_wait_seconds)} s`}
+                v={formatWithUnit(summary.average_wait_seconds, "s")}
                 d={`time inside the region while slow; ${summary.completed_queue_visits} completed visits, ${summary.censored_queue_visits} censored and excluded`}
               />
               <TableRow
                 k="Est. wait (max)"
-                v={`${formatNumber(summary.max_wait_seconds)} s`}
+                v={formatWithUnit(summary.max_wait_seconds, "s")}
                 d="longest completed queue visit"
               />
               <TableRow
                 k="Throughput"
-                v={`${formatNumber(summary.throughput_per_minute)} veh/min`}
+                v={formatWithUnit(summary.throughput_per_minute, "veh/min")}
                 d={`${summary.vehicles_processed} exit-line crossings / ${formatNumber(analysis.video.duration / 60, 2)} min`}
               />
               <TableRow
                 k="Mean time in region"
-                v={`${formatNumber(summary.average_region_seconds)} s`}
+                v={formatWithUnit(summary.average_region_seconds, "s")}
                 d="inside the queue region, moving or not"
               />
               <TableRow
                 k="Mean slow time"
-                v={`${formatNumber(summary.mean_stopped_seconds)} s`}
+                v={formatWithUnit(summary.mean_stopped_seconds, "s")}
                 d="below the speed threshold anywhere in the scene"
               />
               <TableRow
                 k="Mean traversal"
-                v={`${formatNumber(summary.mean_traversal_seconds)} s`}
+                v={formatWithUnit(summary.mean_traversal_seconds, "s")}
                 d="first to last tracked sample of a vehicle"
               />
             </tbody>
@@ -184,10 +182,10 @@ export function PrintBrief() {
             this brief is a physical distance or speed, and no wait time is a measured
             stopwatch value.
           </p>
-        </Section>
+        </PrintSection>
 
         {analysis.bottlenecks.length > 0 && (
-          <Section title="Bottleneck evidence">
+          <PrintSection title="Bottleneck evidence">
             <table className="w-full border-collapse text-left text-[13px]">
               <thead>
                 <tr className="border-b border-rule text-[10px] uppercase tracking-[0.12em] text-ink-faint">
@@ -203,7 +201,7 @@ export function PrintBrief() {
                   <tr key={cell.id} className="border-b border-rule-soft">
                     <td className="py-1.5 pr-3 font-mono">#{cell.id}</td>
                     <td className="py-1.5 pr-3 font-mono">
-                      x {cell.x.toFixed(2)} · y {cell.y.toFixed(2)}
+                      x {formatFixed(cell.x, 2)} · y {formatFixed(cell.y, 2)}
                     </td>
                     <td className="py-1.5 pr-3 font-mono">
                       {cell.vehicle_passes}
@@ -227,11 +225,11 @@ export function PrintBrief() {
               Ranked, not a severity grade. A cell is listed only when at least two
               different vehicles were measurably slowed there.
             </p>
-          </Section>
+          </PrintSection>
         )}
 
         {simulation && (
-          <Section title="Observed versus the unmodified model">
+          <PrintSection title="Observed versus the unmodified model">
             <table className="w-full border-collapse text-left text-[13px]">
               <thead>
                 <tr className="border-b border-rule text-[10px] uppercase tracking-[0.12em] text-ink-faint">
@@ -267,10 +265,10 @@ export function PrintBrief() {
             <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
               {simulation.fidelity.note} Model outcome, not a guaranteed result.
             </p>
-          </Section>
+          </PrintSection>
         )}
 
-        <Section title="Assumptions and limitations">
+        <PrintSection title="Assumptions and limitations">
           <ul className="list-disc space-y-1 pl-5 text-[12px] leading-relaxed text-ink-soft">
             <li>Fixed camera; no perspective calibration, so units are image-based.</li>
             <li>
@@ -291,24 +289,29 @@ export function PrintBrief() {
               identifiable people or plates; anonymous ids do not anonymise the footage.
             </li>
           </ul>
-        </Section>
+        </PrintSection>
 
-        <Section title="Configuration for reproduction">
+        <PrintSection title="Configuration for reproduction">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[12px] sm:grid-cols-3">
             <Row label="Detector" value="Ultralytics YOLO11n (pretrained)" />
             <Row label="Tracker" value="ByteTrack" />
             <Row label="Classes" value="car, bus, truck, motorcycle, bicycle" />
             <Row label="Smoothing" value="exponential, 0.55, bypassed on jumps" />
-            <Row label="Gap threshold" value={`${formatNumber(2.5 / regions.sample_fps, 3)} s`} />
+            <Row label="Gap threshold" value={formatWithUnit(2.5 / regions.sample_fps, "s", 3)} />
             <Row label="Brief generated" value={new Date().toISOString().slice(0, 19).replace("T", " ")} />
           </dl>
-        </Section>
+        </PrintSection>
       </article>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * A ruled block of the brief.  Deliberately local: the page-level `Section` in
+ * Primitives is a different visual treatment, and two components with the same
+ * name in one tree is a trap.
+ */
+function PrintSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-rule-soft py-4 last:border-0 print:break-inside-avoid">
       <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-faint">
@@ -319,14 +322,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-ink-faint">{label}</dt>
-      <dd className="font-mono text-ink">{value}</dd>
-    </div>
-  );
-}
 
 function TableRow({ k, v, d }: { k: string; v: string; d: string }) {
   return (
@@ -381,4 +376,3 @@ function RegionFigure({ analysis }: { analysis: Analysis }) {
     </svg>
   );
 }
-

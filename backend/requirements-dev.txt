@@ -1,0 +1,35 @@
+# FLOWLAB backend development and test dependencies.
+#
+# Thin pointer on purpose: the versions live in [project.optional-dependencies]
+# .dev in pyproject.toml so there is one place to change them.  The duplicate
+# list is here because `pip install -r` cannot read a pyproject table.
+#
+#   pip install -r backend/requirements-dev.txt
+#
+# is the same thing as, from the repository root:
+#
+#   pip install -e ".[dev]"
+#
+# The exact same bounds as pyproject.toml:
+#   pytest>=8,<10
+#   httpx>=0.28,<1
+#   ruff>=0.13
+#   mypy>=1.15
+#   pytest-cov>=6
+#   pre-commit>=4,<5
+#
+# `httpx` is a test dependency only: it is what fastapi.testclient/TestClient
+# drives the API tests with.  It is not needed to run the app.
+#
+# `pre-commit` is a dev dependency rather than a note in the docs because
+# `pre-commit install` is the command CONTRIBUTING.md tells every contributor to
+# run, and a command that is not installed is a broken instruction.  The test
+# `test_requirements_dev_txt_and_pyproject_dev_extra_agree` in
+# backend/tests/test_doctor.py asserts that this list and the pyproject `dev`
+# extra stay identical, so the two cannot drift apart.
+pytest>=8,<10
+httpx>=0.28,<1
+ruff>=0.13
+mypy>=1.15
+pytest-cov>=6
+pre-commit>=4,<5

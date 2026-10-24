@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from itertools import pairwise
 from statistics import fmean
+from typing import TypedDict
 
 import numpy as np
 
 from ..config import settings
 from ..models.schemas import (
     Analysis,
+    Evidence,
     Regions,
     Source,
     StopInterval,
@@ -28,7 +31,12 @@ from .bottlenecks import analyze_grid, heat_cells
 from .events import build_events
 from .geometry import point_in_polygon
 from .motion import detect_stops, mean_or_none, path_length
-from .queue_detection import build_queue_series, max_track_gap, visits_from_episodes
+from .queue_detection import (
+    build_queue_series,
+    build_region_occupancy_series,
+    max_track_gap,
+    visits_from_episodes,
+)
 from .throughput import Crossings, collect_crossings, flow_statistics, rolling_rate
 from .wait_time import WaitStats, wait_statistics
 
@@ -65,7 +73,9 @@ def build_analysis(
     stops: list[StopInterval] = []
     for track in kept:
         track.path_length = round(path_length(track.points), 5)
-        track_stops = detect_stops(track, regions.speed_threshold, regions.min_stop_seconds, max_gap, regions.queue)
+        track_stops = detect_stops(
+            track, regions.speed_threshold, regions.min_stop_seconds, max_gap, regions.queue
+        )
         stops.extend(track_stops)
         track.stopped_seconds = round(sum(stop.duration for stop in track_stops), 2)
         track.mean_speed = round(mean_or_none([point.speed for point in track.points]) or 0.0, 5)
@@ -75,10 +85,15 @@ def build_analysis(
 
     # --- 2. queue series and queue episodes -------------------------------
     series = build_queue_series(kept, regions, duration, step)
+    # Purely geometric occupancy, on the same grid.  This is the number a
+    # human annotator can reproduce, so the validation script compares
+    # against it and reports the queued series beside it.
+    occupancy = build_region_occupancy_series(kept, regions, duration, step)
     episodes = series.episodes if series else []
     for track in kept:
         track.queue_seconds = round(
-            sum(episode.duration for episode in episodes if episode.vehicle_id == track.vehicle_id), 2
+            sum(e.duration for e in episodes if e.vehicle_id == track.vehicle_id),
+            2,
         )
         # Region residence: time inside the queue polygon whether or not the
         # vehicle was moving.  Reported separately from the wait so the two are
@@ -152,20 +167,40 @@ def build_analysis(
         exit_rate=exit_rate,
         exit_count=exit_.count,
         traversals=traversals,
-        stops=stops,
         bottlenecks=bottlenecks,
         censored=waits.censored,
     )
 
-    analysis = Analysis(
+    # Facts a reader needs before trusting the numbers, gathered in one place.
+    fragmentation = _fragmentation(kept, step)
+    evidence = Evidence(
+        observation_seconds=round(duration, 2),
+        sampling_fps=round(regions.sample_fps, 2),
+        vehicles_detected=detected,
+        vehicles_tracked=len(kept),
+        vehicles_crossed_entry=len(arrivals),
+        vehicles_crossed_exit=exit_.count,
+        completed_queue_visits=waits.count,
+        censored_queue_visits=waits.censored,
+        censored_seconds=waits.censored_seconds,
+        registered_stops=len(stops),
+        slow_seconds_total=round(sum(stop.duration for stop in stops), 1),
+        **fragmentation,
+    )
+
+    return Analysis(
         analysis_id=analysis_id,
         source=source,
         video=video,
         regions=regions,
         summary=summary,
         calibration=calibration,
+        evidence=evidence,
         trajectories=kept,
         queue_timeseries=series.to_samples(MAX_QUEUE_SAMPLES) if series else [],
+        region_occupancy_timeseries=(
+            occupancy.to_samples(MAX_QUEUE_SAMPLES) if occupancy else []
+        ),
         bottlenecks=bottlenecks,
         events=events,
         stops=sorted(stops, key=lambda stop: stop.start),
@@ -176,7 +211,6 @@ def build_analysis(
         created_at=created_at if created_at is not None else time.time(),
         heat_grid=heat_cells(cells),
     )
-    return analysis
 
 
 #: Key used to keep the *unfiltered* tracks inside the stored result file.
@@ -249,11 +283,17 @@ def _busy_window(series, departures: list[float]) -> tuple[float, float] | None:
         if flag and current_start is None:
             current_start = index
         elif not flag and current_start is not None:
-            if best_start is None or index - current_start > best_end - best_start:
+            if (
+                best_start is None
+                or best_end is None
+                or index - current_start > best_end - best_start
+            ):
                 best_start, best_end = current_start, index - 1
             current_start = None
     if current_start is not None and (
-        best_start is None or len(busy) - current_start > best_end - best_start
+        best_start is None
+        or best_end is None
+        or len(busy) - current_start > best_end - best_start
     ):
         best_start, best_end = current_start, len(busy) - 1
     if best_start is None or best_end is None or best_end <= best_start:
@@ -273,6 +313,48 @@ def _busy_window(series, departures: list[float]) -> tuple[float, float] | None:
     return (float(series.times[best_start]), float(series.times[stop]))
 
 
+class _Fragmentation(TypedDict):
+    """The four tracking-quality counts spread into :class:`Evidence`."""
+
+    tracks: int
+    short_fragments: int
+    gaps: int
+    missing_sample_share: float
+
+
+def _fragmentation(tracks: list[Trajectory], step: float) -> _Fragmentation:
+    """How broken up the tracking is, which bounds how much can be measured.
+
+    Short fragments and a high share of missing samples mean the trajectories are
+    incomplete, and every count derived from them inherits that uncertainty.
+    """
+    max_gap = max_track_gap(step)
+    if not tracks:
+        return {"tracks": 0, "short_fragments": 0, "gaps": 0, "missing_sample_share": 0.0}
+    short = 0
+    gaps = 0
+    missing = 0
+    expected = 0
+    for track in tracks:
+        points = track.points
+        if len(points) < 2:
+            short += 1
+            continue
+        span = points[-1].time - points[0].time
+        track_expected = max(1, round(span / step))
+        expected += track_expected
+        missing += max(0, track_expected - len(points))
+        for previous, current in pairwise(points):
+            if current.time - previous.time > max_gap:
+                gaps += 1
+    return {
+        "tracks": len(tracks),
+        "short_fragments": short,
+        "gaps": gaps,
+        "missing_sample_share": round(missing / expected, 4) if expected else 0.0,
+    }
+
+
 def _summary(
     *,
     detected: int,
@@ -283,7 +365,6 @@ def _summary(
     exit_rate: float | None,
     exit_count: int,
     traversals: list[float],
-    stops: list[StopInterval],
     bottlenecks: list,
     censored: int,
 ) -> Summary:
@@ -332,7 +413,9 @@ def _warnings(
         )
         return messages
     if not regions.has_queue:
-        messages.append("No queue region is defined, so queue length and wait time are unavailable.")
+        messages.append(
+            "No queue region is defined, so queue length and wait time are unavailable."
+        )
     if not exit_available:
         messages.append("No exit line is defined, so throughput cannot be measured.")
     if not entry.available:
@@ -357,5 +440,3 @@ def _warnings(
             f"(fewer than {settings.min_track_points} samples)."
         )
     return messages
-
-

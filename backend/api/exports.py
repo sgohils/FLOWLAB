@@ -149,10 +149,14 @@ def build_trajectories_csv(analysis: Analysis) -> ExportBundle:
     writer.writerow(["# units: seconds, frame widths, frame widths per second"])
     for track in sorted(analysis.trajectories, key=lambda t: t.vehicle_id):
         completed = sum(
-            1 for visit in analysis.queue_visits if visit.vehicle_id == track.vehicle_id and visit.complete
+            1
+            for visit in analysis.queue_visits
+            if visit.vehicle_id == track.vehicle_id and visit.complete
         )
         censored = sum(
-            1 for visit in analysis.queue_visits if visit.vehicle_id == track.vehicle_id and not visit.complete
+            1
+            for visit in analysis.queue_visits
+            if visit.vehicle_id == track.vehicle_id and not visit.complete
         )
         writer.writerow(
             [
@@ -201,7 +205,14 @@ def build_events_csv(analysis: Analysis) -> ExportBundle:
     writer.writerow([])
     writer.writerow(["# bottlenecks (rank, not severity)"])
     writer.writerow(
-        ["rank", "x_normalised", "y_normalised", "distinct_vehicles", "slow_time_s", "mean_slow_s_per_vehicle"]
+        [
+            "rank",
+            "x_normalised",
+            "y_normalised",
+            "distinct_vehicles",
+            "slow_time_s",
+            "mean_slow_s_per_vehicle",
+        ]
     )
     for bottleneck in analysis.bottlenecks:
         writer.writerow(
@@ -219,7 +230,13 @@ def build_events_csv(analysis: Analysis) -> ExportBundle:
     writer.writerow(["vehicle_id", "start_s", "end_s", "duration_s", "region"])
     for stop in analysis.stops:
         writer.writerow(
-            [stop.vehicle_id, f"{stop.start:.2f}", f"{stop.end:.2f}", f"{stop.duration:.2f}", stop.region]
+            [
+                stop.vehicle_id,
+                f"{stop.start:.2f}",
+                f"{stop.end:.2f}",
+                f"{stop.duration:.2f}",
+                stop.region,
+            ]
         )
     return ExportBundle(
         filename=f"flowlab-{analysis.analysis_id}-events.csv",

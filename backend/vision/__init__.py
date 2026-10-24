@@ -11,7 +11,6 @@ __all__ = [
     "ProcessingResult",
     "RawDetection",
     "TrackAccumulator",
-    "VehicleDetectionError",
     "VehicleDetector",
     "VideoProcessingError",
     "build_annotation",

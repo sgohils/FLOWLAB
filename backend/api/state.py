@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
+from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 
 from ..analytics.metrics import deserialise_analysis, serialise_analysis
 from ..config import BACKEND_DIR, settings
-from ..models.schemas import Analysis
+from ..models.schemas import Analysis, Trajectory
 from ..storage import (
     Database,
     analysis_dir,
@@ -44,8 +46,16 @@ def demo_analysis() -> Analysis | None:
         return None
 
 
-def save_analysis(analysis: Analysis, raw_tracks=None) -> None:
-    """Persist an analysis, keeping the raw tracks for later re-measurement."""
+def save_analysis(
+    analysis: Analysis, raw_tracks: Sequence[Trajectory] | None = None
+) -> None:
+    """Persist an analysis, keeping the raw tracks for later re-measurement.
+
+    ``raw_tracks`` are the **full-resolution, unfiltered** trajectories, stored
+    under ``RAW_TRACKS_KEY``.  They are the input a later region change must
+    see again, otherwise "vehicles detected" would silently change when only
+    the regions were redrawn.
+    """
     payload = serialise_analysis(analysis, raw_tracks=raw_tracks)
     write_result(settings, analysis.analysis_id, payload)
 
@@ -66,7 +76,12 @@ def load_analysis(analysis_id: str) -> Analysis | None:
 
 
 def register_demo() -> Analysis | None:
-    """Make the demo dataset appear in the analysis list."""
+    """Make the demo dataset appear in the analysis list.
+
+    The bundled file is the source of truth: the stored summary and video
+    metadata are refreshed on every start, so regenerating the demo dataset
+    cannot leave the list showing numbers from an older build.
+    """
     analysis = demo_analysis()
     if analysis is None:
         return None
@@ -79,14 +94,14 @@ def register_demo() -> Analysis | None:
             upload_path=None,
             stage="results",
         )
-        database.update(
-            DEMO_ID,
-            status="complete",
-            stage="results",
-            progress=1.0,
-            video=analysis.video.model_dump(mode="json"),
-            summary=analysis.summary.model_dump(mode="json"),
-        )
+    database.update(
+        DEMO_ID,
+        status="complete",
+        stage="results",
+        progress=1.0,
+        video=analysis.video.model_dump(mode="json"),
+        summary=analysis.summary.model_dump(mode="json"),
+    )
     return analysis
 
 
@@ -109,7 +124,9 @@ def is_processing(analysis_id: str) -> bool:
     if job is not None:
         return job.status in {"queued", "processing"}
     record = database.get(analysis_id)
-    return bool(record) and record.get("status") in {"queued", "processing"}
+    if not record:
+        return False
+    return record.get("status") in {"queued", "processing"}
 
 
 def delete_analysis(analysis_id: str) -> tuple[int, int]:
@@ -139,10 +156,9 @@ def delete_analysis(analysis_id: str) -> tuple[int, int]:
                 removed, size = _remove(child)
                 files += removed
                 freed += size
-        try:
+        # A stray file we could not remove is still reported via `files`.
+        with suppress(OSError):
             directory.rmdir()
-        except OSError:
-            pass  # a stray file we could not remove; reported via files count
 
     database.delete(analysis_id)
     return files, freed

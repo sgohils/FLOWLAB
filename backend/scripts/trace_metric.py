@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from urllib.request import urlopen
 
 import numpy as np
 
-from ..analytics.metrics import build_analysis
 from ..analytics.queue_detection import build_queue_series, max_track_gap
 from ..api.state import demo_analysis
 

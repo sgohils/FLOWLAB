@@ -19,7 +19,7 @@ function Header() {
             traffic digital twin
           </span>
         </Link>
-        <nav className="flex items-center gap-1 text-[13px]">
+        <nav aria-label="Sections" className="flex items-center gap-1 text-[13px]">
           <NavLink
             to="/"
             end
@@ -96,8 +96,17 @@ function Shell() {
   const { analysisId } = useAnalysis();
   return (
     <div className="flex min-h-full flex-col">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:border focus:bg-surface focus:px-3 focus:py-1.5 focus:text-[12px]"
+      >
+        Skip to content
+      </a>
       <Header />
-      <main className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8 print:max-w-none print:px-0 print:py-0">
+      <main
+        id="main-content"
+        className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8 print:max-w-none print:px-0 print:py-0"
+      >
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/analysis" element={<Analysis />} />

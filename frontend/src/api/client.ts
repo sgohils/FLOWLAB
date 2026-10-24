@@ -20,6 +20,14 @@ import type {
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
+/**
+ * Largest page `GET /api/analyses` will serve (`Query(default=25, ge=1, le=100)`
+ * in routes_analysis.py).  Asking for it explicitly matters: the interface says
+ * how many rows it shows, and the silent default of 25 would make "up to 100"
+ * quietly untrue on a busy machine.
+ */
+const ANALYSIS_PAGE_MAX = 100;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly hint: string | null;
@@ -70,7 +78,9 @@ export const api = {
   health: () => request<Health>("/api/health"),
   meta: () => request<Meta>("/api/meta"),
   demo: () => request<Analysis>("/api/demo"),
-  analyses: () => request<AnalysisListItem[]>("/api/analyses"),
+  /** Stored analyses, newest first, one page of at most 100. */
+  analyses: (limit = ANALYSIS_PAGE_MAX) =>
+    request<AnalysisListItem[]>(`/api/analyses?limit=${limit}`),
 
   upload: (file: File, onProgress?: (fraction: number) => void) =>
     new Promise<UploadResponse>((resolve, reject) => {
@@ -119,6 +129,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ regions }),
     }),
+  /** Named starting points for the scenario sliders, from the backend. */
+  presets: (id: string) => request<Scenario[]>(`/api/analyses/${id}/simulation/presets`),
   simulate: (id: string, scenario: Scenario) =>
     request<SimulationResult>(`/api/analyses/${id}/simulate`, {
       method: "POST",
@@ -135,6 +147,7 @@ export const api = {
     vehicles: (id: string) => `${BASE}/api/analyses/${id}/export/vehicles.csv`,
     queue: (id: string) => `${BASE}/api/analyses/${id}/export/queue.csv`,
     events: (id: string) => `${BASE}/api/analyses/${id}/export/events.csv`,
+    measurements: (id: string) => `${BASE}/api/analyses/${id}/export/measurements`,
   },
 
   annotatedVideoUrl: (id: string) => `${BASE}/api/analyses/${id}/video/annotated`,

@@ -1,0 +1,87 @@
+# FLOWLAB pre-commit hooks.
+#
+# Small and fast on purpose: every hook here runs in well under a second on the
+# Python files and needs no network.  There is deliberately NO autoformatter
+# (black, ruff format, prettier): the codebase was written by hand in a
+# consistent style already, and a formatter would rewrite the entire tree in
+# one commit and make every real change harder to review.
+#
+#   pip install -r backend/requirements-dev.txt
+#   pre-commit install
+#
+# CI (.github/workflows/ci.yml) runs the same checks, so skipping pre-commit
+# locally does not let anything through that CI would catch.
+#
+# ---------------------------------------------------------------- line endings
+#
+# .editorconfig declares `end_of_line = lf`, and that is what is committed: the
+# blobs in the index are pure LF.  A Windows checkout is a different story -
+# `core.autocrlf=true` checks text files out as CRLF - and a pre-commit hook
+# runs on the *working tree*, not on the blob.  The two hooks below are chosen
+# for how they behave in that situation, and the choice is deliberate:
+#
+#   trailing-whitespace  reads each line, splits the `\r\n` / `\n` off the end,
+#                        strips only the spaces and tabs, and writes the line
+#                        back with the terminator it found.  It cannot change a
+#                        file's line endings.  (pre_commit_hooks/
+#                        trailing_whitespace_fixer.py, _process_line.)
+#
+#   end-of-file-fixer   upstream is NOT line-ending safe: it appends a literal
+#                        b"\n" to a file that does not end in a break, which
+#                        leaves a CRLF file ending `\r\n\n`.  It is therefore
+#                        replaced below by backend/scripts/fix_final_newline.py,
+#                        which appends the terminator the file already uses.
+#                        Same contract otherwise, so nothing else changes.
+#
+# Neither hook normalises a file that is already consistent, so a pre-commit run
+# over a mixed-ending checkout changes the final newline of a handful of files
+# and touches nothing else.  The alternative - running upstream's
+# `mixed-line-ending --fix=lf` and renormalising the whole tree - would rewrite
+# every line of backend/demo/sample_reference.json, and that diff would bury the
+# real one.
+default_language_version:
+  python: python3
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      # Line-ending safe: it preserves the terminator it found on each line
+      # (see the header).  Do not swap this for `mixed-line-ending --fix`.
+      - id: trailing-whitespace
+        exclude: ^docs/.*\.md$   # Markdown line breaks are meaningful there
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: local
+    hooks:
+      # Every text file ends with exactly one newline, written the way that file
+      # already ends its lines.  Replaces pre-commit-hooks' end-of-file-fixer
+      # for the reason in the header: upstream appends a bare b"\n" and turns
+      # `...\r\n` into `...\r\n\n` in a CRLF working tree.
+      - id: end-of-file-fixer
+        name: FLOWLAB final newline (keeps CRLF files CRLF)
+        entry: python -m backend.scripts.fix_final_newline
+        language: system
+        types: [text]
+
+      # This repository was damaged by cp1252 mojibake: source files were saved
+      # from a console and came back with mangled non-ASCII characters, and the
+      # damage was invisible until a test failed on a string literal.  ruff and
+      # pytest will not catch it, because the damage is well-formed Python.
+      # `python -m backend.scripts.check_encoding` reads every tracked source
+      # file as UTF-8 and reports the offenders, and it is a repository-local
+      # script rather than a generic hook on purpose.  The encoding gate is also
+      # a CI step, so this is belt and braces rather than the only line of
+      # defence.
+      - id: flowlab-encoding
+        name: FLOWLAB source encoding (UTF-8, no mojibake)
+        entry: python -m backend.scripts.check_encoding
+        language: system
+        pass_filenames: false
+        types: [text]
