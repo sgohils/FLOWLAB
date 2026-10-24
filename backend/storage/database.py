@@ -89,7 +89,8 @@ class Database:
         with self._lock, self._connect() as connection:
             connection.execute(
                 "INSERT INTO analyses (analysis_id, source, filename, upload_path, status,"
-                " stage, progress, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                " stage, progress, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT (analysis_id) DO NOTHING",
                 (analysis_id, source, filename, upload_path, "queued", stage, 0.0, now, now),
             )
 

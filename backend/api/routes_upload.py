@@ -48,6 +48,9 @@ class UploadResponse(BaseModel):
 
 @router.post("", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
+    if settings.hosted:
+        await file.close()
+        raise api_error(400, "Use the direct Blob upload flow for hosted video processing.")
     filename = safe_filename(file.filename or "video.mp4")
     if not extension_allowed(filename, settings):
         allowed = ", ".join(settings.allowed_extensions)

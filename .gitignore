@@ -61,3 +61,7 @@ data/
 *.log
 test-results/
 coverage/
+
+# Local Vercel project link and generated build output.
+.vercel/
+.codex-test-deps/

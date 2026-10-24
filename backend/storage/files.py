@@ -52,6 +52,14 @@ def upload_path(settings: Settings, analysis_id: str, filename: str) -> Path:
 def write_result(settings: Settings, analysis_id: str, payload: dict[str, Any]) -> Path:
     """Store an analysis as gzipped JSON (trajectory payloads get large)."""
     path = result_path(settings, analysis_id)
+    if settings.hosted:
+        from .cloud import publish_bytes
+
+        # A function instance can handle concurrent region edits. Use an
+        # immutable object directly rather than a shared temporary filename.
+        content = gzip.compress(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+        publish_bytes(settings, f"processed/{analysis_id}/result.json.gz", content)
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wt", encoding="utf-8") as handle:
         json.dump(payload, handle, separators=(",", ":"))
@@ -60,6 +68,15 @@ def write_result(settings: Settings, analysis_id: str, payload: dict[str, Any]) 
 
 def read_result(settings: Settings, analysis_id: str) -> dict[str, Any] | None:
     path = result_path(settings, analysis_id)
+    if settings.hosted:
+        from vercel.blob import sync as blob
+
+        from .cloud import cloud_database
+
+        record = cloud_database(settings).get_object(f"processed/{analysis_id}/result.json.gz")
+        if not record:
+            return None
+        return json.loads(gzip.decompress(blob.get_blob(record["url"], access="private").body))
     if not path.exists():
         return None
     try:

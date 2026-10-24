@@ -33,6 +33,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
         ("4.10", ">=4.10,<6", True),  # a short version pads with zeros
         ("4.10.0", ">=4.10,<6", True),
         ("5.0.0rc1", ">=4.10,<6", False),  # a pre-release is not ">= 4.10"
+        ("2.14.0+cpu", ">=2.6,<3", True),  # local wheel tags are not prereleases
+        ("2.14.0rc1+cpu", ">=2.6,<3", False),
         ("5.0.0", ">=4.10", True),
         ("5.0.0", "", True),  # no bound declared, nothing to violate
         ("5.0.0", "banana", False),  # an unreadable bound must not pass
@@ -47,7 +49,7 @@ def test_satisfies(version: str, bound: str, expected: bool):
 
 def test_the_declared_bounds_are_parsed_from_the_file():
     declared = doctor.declared_requirements()
-    assert declared["opencv-python"] == ">=4.10,<6"
+    assert declared["opencv-python-headless"] == ">=4.10,<6"
     assert declared["uvicorn"] == ">=0.34,<1", "an extras marker must not hide the bound"
     assert "pytest" not in declared, "dev-only packages are not runtime bounds"
 

@@ -19,6 +19,17 @@ function stubFetch(body: unknown = []) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
+
+it("joins an explicit API origin without a double slash", async () => {
+  vi.resetModules();
+  vi.stubEnv("VITE_API_URL", "https://api.example.test/");
+  const fetchMock = stubFetch({ status: "ok" });
+  const { api: configuredApi } = await import("./client");
+  await configuredApi.health();
+  expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/api/health", undefined);
 });
 
 describe("api.analyses", () => {

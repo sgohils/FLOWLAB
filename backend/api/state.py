@@ -29,8 +29,16 @@ logger = logging.getLogger(__name__)
 DEMO_ID = "demo"
 DEMO_FILE = BACKEND_DIR / "demo" / "sample_analysis.json"
 
-database = Database(settings.database_path)
-jobs = JobManager(database, settings)
+if settings.hosted:
+    from ..storage.postgres import PostgresDatabase
+    from .hosted_jobs import HostedJobs
+
+    hosted_database = PostgresDatabase(settings.database_url)
+    database: Database = hosted_database
+    jobs: HostedJobs | JobManager = HostedJobs(hosted_database, settings)
+else:
+    database = Database(settings.database_path)
+    jobs = JobManager(database, settings)
 
 
 @lru_cache(maxsize=1)
@@ -106,6 +114,8 @@ def register_demo() -> Analysis | None:
 
 
 def annotated_file(analysis_id: str) -> Path | None:
+    if settings.hosted:
+        return _cloud_media(f"processed/{analysis_id}/annotated.mp4")
     path = annotated_path(settings, analysis_id)
     return path if path.exists() and path.stat().st_size > 1024 else None
 
@@ -114,8 +124,19 @@ def source_file(analysis_id: str) -> Path | None:
     record = database.get(analysis_id)
     if not record or not record.get("upload_path"):
         return None
+    if settings.hosted:
+        return _cloud_media(record["upload_path"])
     path = Path(record["upload_path"])
     return path if path.exists() else None
+
+
+def _cloud_media(key: str) -> Path | None:
+    from uuid import uuid4
+
+    from ..storage.cloud import download
+
+    path = settings.data_dir / "downloads" / f"{uuid4().hex}.mp4"
+    return path if download(settings, key, path) else None
 
 
 def is_processing(analysis_id: str) -> bool:
@@ -137,6 +158,16 @@ def delete_analysis(analysis_id: str) -> tuple[int, int]:
     video, the result payload and the per-analysis directory all go.
     """
     record = database.get(analysis_id)
+    if settings.hosted:
+        from ..storage.cloud import cloud_database, remove
+
+        keys = [f"processed/{analysis_id}/{name}" for name in ("annotated.mp4", "result.json.gz")]
+        if record and record.get("upload_path"):
+            keys.append(record["upload_path"])
+        deleted = [remove(settings, key) for key in keys]
+        cloud_database(settings).delete_intent(analysis_id)
+        database.delete(analysis_id)
+        return sum(item[0] for item in deleted), sum(item[1] for item in deleted)
     files = 0
     freed = 0
 
@@ -183,6 +214,10 @@ def reconcile_orphans() -> int:
     ``processing`` describes work that is no longer running.  Marking them as
     an error is what stops the UI from polling a dead job forever.
     """
+    if settings.hosted:
+        # Other instances and queue retries own these jobs; a new API process
+        # must never mark another worker's running analysis as interrupted.
+        return 0
     repaired = 0
     for record in database.list_recent(limit=500):
         if record.get("status") not in {"queued", "processing"}:

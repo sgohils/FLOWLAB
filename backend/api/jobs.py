@@ -82,6 +82,7 @@ class JobManager:
         self._jobs: dict[str, _Job] = {}
         self._lock = threading.Lock()
         self._last_written = 0.0
+        self._deadline: float | None = None
         self._executor = ThreadPoolExecutor(
             max_workers=self._settings.max_concurrent_jobs, thread_name_prefix="flowlab"
         )
@@ -127,8 +128,11 @@ class JobManager:
 
     # -- worker ------------------------------------------------------------
 
-    def _run(self, analysis_id: str, source_path: Path, regions: Regions) -> None:
+    def _run(
+        self, analysis_id: str, source_path: Path, regions: Regions, *, retry_errors: bool = False
+    ) -> None:
         started = time.time()
+        self._deadline = time.monotonic() + 240 if self._settings.hosted else None
         try:
             self._advance(analysis_id, "reading_video", 0.0, "Opening the video")
             result = process_video(
@@ -165,6 +169,10 @@ class JobManager:
                 analysis_id,
                 serialise_analysis(analysis, raw_tracks=result.tracks),
             )
+            if self._settings.hosted and result.annotated_path:
+                from ..storage.cloud import publish
+
+                publish(self._settings, result.annotated_path)
             self._db.update(
                 analysis_id,
                 status="complete",
@@ -182,6 +190,8 @@ class JobManager:
         except VideoProcessingError as exc:
             self._fail(analysis_id, str(exc), ERROR_HINTS["video"])
         except Exception as exc:  # pragma: no cover - defensive
+            if retry_errors:
+                raise
             logger.exception("Analysis %s failed", analysis_id)
             self._fail(
                 analysis_id,
@@ -192,6 +202,8 @@ class JobManager:
     # -- state helpers -----------------------------------------------------
 
     def _advance(self, analysis_id: str, stage: str, fraction: float, message: str) -> None:
+        if self._deadline is not None and time.monotonic() > self._deadline:
+            raise TimeoutError("Video processing exceeded its worker time budget.")
         job = self._jobs.get(analysis_id)
         if job is None:
             return

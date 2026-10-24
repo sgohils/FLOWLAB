@@ -11,6 +11,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import gettempdir
 from urllib.parse import urlsplit
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -260,6 +261,9 @@ class Settings:
     #: unauthenticated, so this list is its only access boundary.  Validated at
     #: construction - see :func:`_env_origins`.
     cors_origins: tuple[str, ...]
+    #: Hosted persistence is selected explicitly or by the Vercel runtime.
+    hosted: bool = False
+    database_url: str = ""
 
     @property
     def class_ids(self) -> list[int]:
@@ -268,9 +272,17 @@ class Settings:
 
 
 def build_settings() -> Settings:
-    data_dir = Path(_env_str("FLOWLAB_DATA_DIR", str(PROJECT_DIR / "data"))).resolve()
+    # A deployed Vercel function can write only to temporary storage. This is
+    # instance-local scratch space, not persistent or shared application state.
+    on_vercel = os.getenv("VERCEL") == "1"
+    hosted = _env_bool("FLOWLAB_HOSTED", on_vercel)
+    default_data_dir = Path(gettempdir()) / "flowlab" if hosted else PROJECT_DIR / "data"
+    data_dir = Path(_env_str("FLOWLAB_DATA_DIR", str(default_data_dir))).resolve()
+    default_model = str(data_dir / "yolo11n.pt") if hosted else "yolo11n.pt"
     return Settings(
-        model_name=_env_str("FLOWLAB_MODEL", "yolo11n.pt"),
+        hosted=hosted,
+        database_url=_env_str("DATABASE_URL", ""),
+        model_name=_env_str("FLOWLAB_MODEL", default_model),
         confidence=_env_float("FLOWLAB_CONFIDENCE", 0.25),
         iou=_env_float("FLOWLAB_IOU", 0.50),
         imgsz=_env_int("FLOWLAB_IMGSZ", 640),

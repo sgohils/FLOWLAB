@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Query, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ValidationError
+from starlette.background import BackgroundTask
 
 from ..analytics.metrics import build_analysis, deserialise_analysis
 from ..analytics.timeline import build_timeline
@@ -323,7 +324,10 @@ async def annotated_video(analysis_id: str) -> FileResponse:
             status.HTTP_404_NOT_FOUND,
             "No annotated video is available for this analysis.",
         )
-    return FileResponse(path, media_type="video/mp4", filename=f"{analysis_id}-annotated.mp4")
+    return FileResponse(
+        path, media_type="video/mp4", filename=f"{analysis_id}-annotated.mp4",
+        background=BackgroundTask(path.unlink, missing_ok=True) if settings.hosted else None,
+    )
 
 
 @router.get("/analyses/{analysis_id}/video/source", response_class=FileResponse)
@@ -331,7 +335,10 @@ async def original_video(analysis_id: str) -> FileResponse:
     path = source_file(analysis_id)
     if path is None:
         raise api_error(status.HTTP_404_NOT_FOUND, "The source video is no longer on disk.")
-    return FileResponse(path, media_type="video/mp4", filename=Path(path).name)
+    return FileResponse(
+        path, media_type="video/mp4", filename=Path(path).name,
+        background=BackgroundTask(path.unlink, missing_ok=True) if settings.hosted else None,
+    )
 
 
 @router.get("/analyses/{analysis_id}/timeline")

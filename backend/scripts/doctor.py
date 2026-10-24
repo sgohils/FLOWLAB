@@ -41,7 +41,11 @@ RUNTIME_REQUIRED = {"fastapi", "uvicorn", "pydantic", "numpy", "cv2", "ultralyti
 REQUIREMENTS_FILE = BACKEND_DIR / "requirements.txt"
 
 #: Distribution name -> module name, where the two differ.
-IMPORT_NAMES = {"opencv-python": "cv2"}
+IMPORT_NAMES = {
+    "opencv-python": "cv2",
+    "opencv-python-headless": "cv2",
+    "ultralytics-opencv-headless": "ultralytics",
+}
 
 #: Checks that must pass before FLOWLAB can run.
 BLOCKING = set(RUNTIME_REQUIRED) | {"dependency pins"}
@@ -105,7 +109,7 @@ def _release(version: str) -> tuple[tuple[int, ...], bool]:
     """``(release segments, is_prerelease)`` for a PEP 440 version string."""
     head = re.split(r"[-+]", version.strip(), maxsplit=1)[0]
     segments = tuple(int(part) for part in re.findall(r"\d+", head))
-    return (segments or (0,)), bool(re.search(r"[A-Za-z]", version))
+    return (segments or (0,)), bool(re.search(r"[A-Za-z]", head))
 
 
 def _compare(left: tuple[int, ...], right: tuple[int, ...]) -> int:

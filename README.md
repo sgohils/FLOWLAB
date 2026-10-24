@@ -323,6 +323,41 @@ never run here. Treat the container path as unproven.
 
 ---
 
+### Vercel services
+
+The root [vercel.json](vercel.json) prepares two services in one project:
+`backend` (FastAPI) receives `/api/*`, except `/api/blob-upload`, which runs on
+`frontend` (Vite + a Node upload function). Frontend receives all other paths;
+React navigation falls back to `index.html`. The backend's service
+root is `.` so Python can import `backend.main:app` and install dependencies
+from the root `pyproject.toml`. There is no separate root `app` application.
+
+Hosted mode uses managed PostgreSQL for metadata, a **private Vercel Blob**
+store for uploaded videos and immutable result versions, and **Vercel Queues**
+for processing. The private subscriber `backend.worker` runs independently of
+API requests, retries transient failures, and stores progress in PostgreSQL.
+The browser uploads videos directly to Blob. The frontend's Node function
+authorizes uploads through its `BACKEND_URL` service binding to `backend`.
+That variable is injected by Vercel at runtime; do not set it yourself or put
+it in the static bundle. Leave `VITE_API_URL` unset for same-origin routing.
+
+After connecting the stores and applying the PostgreSQL schema, test all
+services from the repository root:
+
+```bash
+vercel dev
+```
+
+See [the hosted deployment guide](docs/VERCEL.md) for environment variables,
+schema setup, importing existing local analyses, and runtime limits. Local
+development keeps SQLite, filesystem storage, and the original job runner when
+`FLOWLAB_HOSTED` is unset and the process is not running on Vercel.
+
+The hosted configuration has not been deployed or tested against real stores
+yet. PyTorch may require Large Functions, and processing must fit the worker's
+300-second limit. The API has no user authentication: apply deployment access
+protection before hosting sensitive footage. CORS is not authentication.
+
 ## Your first analysis
 
 1. Press **Analyse Traffic Video** and drop in an MP4 (or press **Try Sample

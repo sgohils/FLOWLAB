@@ -18,7 +18,9 @@ import type {
   UploadResponse,
 } from "../types";
 
-const BASE = import.meta.env.VITE_API_URL ?? "";
+// Vercel routes same-origin /api requests to the backend. Keep VITE_API_URL
+// unset there: runtime service binding URLs cannot be used in a static bundle.
+const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 /**
  * Largest page `GET /api/analyses` will serve (`Query(default=25, ge=1, le=100)`
@@ -82,7 +84,41 @@ export const api = {
   analyses: (limit = ANALYSIS_PAGE_MAX) =>
     request<AnalysisListItem[]>(`/api/analyses?limit=${limit}`),
 
-  upload: (file: File, onProgress?: (fraction: number) => void) =>
+  upload: async (file: File, onProgress?: (fraction: number) => void): Promise<UploadResponse> => {
+    const config = await request<{ mode: "blob" | "local" }>("/api/uploads/config");
+    if (config.mode === "local") return api.uploadLocal(file, onProgress);
+    const intent = await request<{ analysis_id: string; token: string; pathname: string }>(
+      "/api/uploads/intent",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, size: file.size }) },
+    );
+    const { upload } = await import("@vercel/blob/client");
+    await upload(intent.pathname, file, {
+      access: "private",
+      handleUploadUrl: `${BASE}/api/blob-upload`,
+      clientPayload: JSON.stringify(intent),
+      multipart: true,
+      contentType: file.type || "video/mp4",
+      onUploadProgress: ({ percentage }) => onProgress?.(percentage / 100),
+    });
+    // The verified Blob callback also finalizes the job if this tab closes.
+    // Both paths are idempotent. Retry when the callback currently holds the lock.
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await request<UploadResponse>("/api/uploads/complete", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(intent),
+        });
+      } catch (error) {
+        if (
+          !(error instanceof ApiError) || ![409, 500, 503].includes(error.status) || attempt >= 4
+        ) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  },
+
+  uploadLocal: (file: File, onProgress?: (fraction: number) => void) =>
     new Promise<UploadResponse>((resolve, reject) => {
       const form = new FormData();
       form.append("file", file);

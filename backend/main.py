@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from .api.routes_analysis import router as analysis_router
+from .api.routes_cloud_upload import router as cloud_upload_router
 from .api.routes_simulation import router as simulation_router
 from .api.routes_upload import router as upload_router
 from .api.state import jobs, reconcile_orphans, register_demo
@@ -82,6 +83,7 @@ app.add_middleware(
 )
 
 app.include_router(upload_router)
+app.include_router(cloud_upload_router)
 app.include_router(analysis_router)
 app.include_router(simulation_router)
 
