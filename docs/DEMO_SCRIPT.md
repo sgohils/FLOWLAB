@@ -1,224 +1,149 @@
-# FLOWLAB — demonstration script (2 min 45 s)
+# FLOWLAB demonstration outline: target 2 minutes 45 seconds
 
-**Verified rules (checked 2026-09-27):** deadline **26 October 2026, 12:00 pm
-EDT**; video **1–3 minutes**, uploaded publicly to YouTube or Vimeo; the video
-must state participant name(s), app name, purpose in one sentence, target
-audience, tools and coding languages, and show the app working. AI use must be
-fully disclosed and must not constitute the whole project. Confirm your district's
-requirements separately — several require earlier internal deadlines.
+**Created by Shlok Gohil · GA-07**
 
-**Participants:** ______  **School / district:** ______
-**App name:** FLOWLAB
+For the personalized 2:50 narration, exact recording steps and YouTube upload
+instructions, use [RECORDING_PLAN.md](submission/RECORDING_PLAN.md). The
+[application answers](submission/APPLICATION_ANSWERS.md) include the motivation
+and process details supplied by Shlok.
 
-> Every time claim below was measured on this machine (demo dataset, 135 s clip,
-> CPU only). Re-check them after any change. The full record of commands and
-> their output is in `docs/VERIFICATION.md`.
+Revised October 25, 2026. Read [CAC_SUBMISSION.md](CAC_SUBMISSION.md) before
+recording, especially the conflicting official deadline times and student/AI
+requirements. Replace bracketed text and speak in your own words. Do not read
+unverified first-person claims.
 
----
+## Before recording
 
-## The required six elements, marked in the script
+- **Participants:** Shlok Gohil `[TODO: introduce any actual teammates too]`
+- **School/eligibility:** `[TODO: confirm privately; do not infer from GA-07]`
+- **App version:** `[TODO: commit/release shown in the recording]`
+- **Student technical contribution:** `[TODO: specific code, decision, and test
+  the student actually implemented]`
+- Rehearse on the deployed site. A completed bundled analysis avoids waiting
+  for an upload in the recording. Keep a local backup; identify the environment
+  accurately if using it.
+- Open `/analysis/real-demo` for the real video and `/simulation/demo` for the
+  synthetic queue experiment after this release is deployed. Both examples work
+  without cloud database, Blob, or Queues setup; upload must be tested separately.
+- Public-road footage is not footage of your school or proof of accuracy.
+- Use only numbers visible in this release. Run current checks; old documents'
+  test totals are historical. Time the finished video rather than assuming the
+  time blocks below will match a spoken take.
 
-| Required | Said at | Wording used |
-| --- | --- | --- |
-| Participant name(s) | 0:00 | "I'm ______" |
-| App name | 0:05 | "This is FLOWLAB" |
-| Purpose in one sentence | 0:08 | the single sentence below |
-| Target audience | 0:15 | "for a school administrator" |
-| Tools and languages | 2:30 | listed explicitly |
-| App working | 0:20 – 2:25 | the walkthrough |
+## 0:00–0:20 — Name, purpose, audience, actual motivation
 
----
+**Show:** home page.
 
-## 0:00 – 0:20 · Who, what, why, for whom
+> “I'm Shlok Gohil, and this is FLOWLAB. It turns traffic video into explainable
+> vehicle measurements and lets schools compare simplified traffic scenarios.
+> It's intended for school administrators looking at pickup traffic and
+> students learning how measurement and models work. [One sentence about your
+> actual motivation.]”
 
-> "I'm ______, and this is **FLOWLAB**. In one sentence: it turns a clip of
-> traffic at a school gate into anonymous vehicle tracks, explains where the
-> traffic slows down, and lets you test one change before trying it.
-> It's for a school administrator who already *knows* the pickup is bad and
-> wants evidence, and for a student who wants to see a computer-vision pipeline
-> end to end. Everything runs on this laptop, and it never looks at people."
+## 0:20–0:50 — Real footage and working tracking
 
-*On screen:* home page. Keep the privacy claim exactly this short.
+**Action:** choose **Watch real traffic analysis** (`/analysis/real-demo`). Play
+the clip and trajectory replay; point out the source/credit. Pause once.
 
-## 0:20 – 0:50 · Data in, anonymous tracking out
+> “This is Kjetil_r's public-domain road footage from Lysaker, Norway, processed
+> beforehand. It's a 25-second excerpt with original timing. Pretrained YOLO
+> finds vehicles; ByteTrack links tracks. Video and positions share one clock.
+> Track IDs don't identify a person or plate.”
 
-> "Here is the demo dataset — synthetic traffic, clearly labelled, so the demo
-> never depends on having the right clip. A real clip works the same way: I
-> upload it and it samples ten frames a second rather than every frame, because
-> a car moves about a metre in a tenth of a second and the extra frames cost
-> time and tell us nothing."
+> “This shared demo has no sign-in: anyone with access can open analyses and
+> videos. Upload only footage permitted for public sharing; run locally for
+> private school footage.”
 
-*Action:* the transport bar is on screen. Press **Play** once, then **Pause**.
+Do not imply that this road is the student's school, that Shlok recorded it, or
+that replay is live inference. If real footage is unavailable in the version
+being recorded, use **Try Sample Analysis**, explicitly call it synthetic, and
+describe trajectory replay without claiming there is source video.
 
-> "YOLO finds the vehicles, ByteTrack keeps an id on each one, and the
-> application shows me where they are right now — Vehicle 014 is here at this
-> instant, not on a later frame. If a track is lost, the vehicle is hidden rather
-> than drawn somewhere it wasn't."
+Full source and transformation notes are in
+[CREDITS.txt](../frontend/public/demos/CREDITS.txt). Stabilization, crop, resize,
+and audio removal are disclosed; no vehicles or frames were generated.
 
-*Point at:* the moving dots on the trajectory map.
+## 0:50–1:20 — One number and the evidence behind it
 
-## 0:50 – 1:20 · Pause at a queue event and show the evidence
+**Action:** open throughput's **why?** panel and the evidence/assumptions panel.
+Point to the near-carriageway measurement lines and the source-credit panel.
 
-> "Now I want to check one number. Let me jump to the moment the queue peaked."
+> “Ten tracks cross this exit line in 25 seconds: 24 crossings per minute over
+> this short window. The 75 retained track IDs cover both traffic directions;
+> they aren't a hand-verified unique vehicle count. These measurement lines
+> cover the near carriageway.”
 
-*Action:* click **Peak queue reached** in the event timeline — the replay seeks
-there and the chart cursor moves with it.
+> “This is evidence to investigate, not a verified real-world speed measurement
+> or a claim that every vehicle was detected.”
 
-> "Peak queue: 13 vehicles. And the card has a *why?* button, so I can check it
-> instead of believing it."
+The actual real example has **peak queue 0** and **wait unavailable** because no
+completed queue waits were measured. Its 91 initial fragments and 75 retained
+IDs are automated output, not an accuracy score. If a later release changes
+these values, use its actual displayed numbers and update this outline.
 
-*Action:* press **why?** on Peak queue.
+## 1:20–1:55 — Change one variable and compare fairly
 
-> "It's the largest number of vehicles that were inside the region I drew *and*
-> moving slowly at the same instant. It was first reached at 77.9 seconds, the
-> region was drawn by hand, and the queue is sampled ten times a second. Same for
-> the wait: 14.7 seconds is the mean of 36 completed visits — 26 more were still
-> open when the clip ended, so they're counted separately instead of being
-> guessed at."
+**Action:** switch explicitly to `/simulation/demo`, the **synthetic queue
+sandbox**. Choose one preset and run it. Show the observed/baseline/scenario
+table and paired corridor replay. Use the synthetic sandbox's actual numbers.
 
-*Scroll to the evidence panel.*
+> “The real clip is free-flow traffic, so I'm switching to the labelled synthetic
+> queue example. What if [the preset's question]? Compare the unmodified model
+> with the dataset, then the change with that model baseline. [Read the actual
+> baseline and scenario values.] That separates model mismatch from the change.”
 
-> "And this is everything underneath: 26 vehicles in, 26 across the exit line,
-> 26 censored visits, zero tracking gaps, and a 135-second window. If that list
-> had said five vehicles or a fifth of the samples missing, the panel would tell
-> me not to lean on the numbers."
+> “This is a simplified corridor model. The sensitivity range shows how results
+> depend on estimated service time. It's an experiment, not a promise of the
+> same improvement on a real road.”
 
-*Action:* click bottleneck cell **Rank 1**.
+If the model fits poorly or a metric is unavailable, show the caveat. Do not
+claim a benefit if the screen shows no change, or compare throughput across
+different time windows without the app's qualification.
 
-> "Twenty-six different vehicles were measurably slowed in this cell — and
-> clicking it highlights exactly those tracks."
+## 1:55–2:20 — A useful output and an honest limitation
 
-## 1:20 – 2:00 · One scenario, against a baseline
+**Action:** open the print brief, or show the export controls and evidence.
 
-> "Here's the question I'd actually ask: what if arrivals were spread over two
-> extra minutes?"
+> “The brief takes the definitions and comparison into a conversation.
+> Measurement exports omit source video and the original filename. Before
+> using this for a school decision, I'd need permission for representative
+> footage and independent hand counts. This real clip demonstrates
+> functionality; it isn't an accuracy study or proof of reduced congestion.”
 
-*Action:* press the **Spread +120 s** preset, then **Run simulated scenario**.
+If independent annotation has actually been completed, replace the last sentence
+with its measured comparison, scope, and limitations. Do not quote synthetic
+validation as real detector accuracy.
 
-> "Three lines, same clock. Blue is the footage. Grey is the model with nothing
-> changed — it replays the arrivals I measured, so you can see how much of any
-> difference is the *model's* error, not my change. Amber is the model with the
-> change."
+## 2:20–2:45 — Student contribution, tools, disclosure
 
-*Point at:* the three-way table.
+**Show:** the relevant module/test briefly, then return to the app.
 
-> "Peak queue 13 observed, 7 in the unmodified model, 1 with the change. The
-> mean wait goes from 19.6 seconds in the model to 1.7. Note the caveat: the
-> model only reproduces the observed peak queue with a factor of 0.54, which is
-> why I read the change as 'from this baseline' and not as a prediction for a
-> real school. And throughput is not comparable here, because spreading the
-> arrivals made the window 255 seconds instead of 135 — the application says so
-> instead of printing a number that would mislead me."
+> “[Describe a technical problem you personally worked on, your change, and how
+> you checked it.] The stack uses Python, FastAPI, OpenCV, pretrained Ultralytics
+> YOLO and ByteTrack, TypeScript, React and Vite, and automated tests. Hosted
+> storage uses PostgreSQL and Vercel Blob, with queued processing. AI
+> coding assistance and third-party sources are disclosed in the submission.
+> [State your actual contribution and next step in your own words.]”
 
-*Action:* press **Play** on the corridor animation.
+Only name hosted services if that is the build shown; a local fallback uses
+SQLite and local processing. Do not say “I built” about an assistant's work.
+Review [AI_ASSISTANCE.md](AI_ASSISTANCE.md) and
+[STUDENT_CONTRIBUTIONS.md](STUDENT_CONTRIBUTIONS.md).
 
-> "Both corridors are drawn from the simulator's own recorded states, on the
-> same clock. If the change does nothing, the two look identical — I don't
-> animate an improvement the model didn't produce."
+## Final recording checks
 
-*Point at:* the sensitivity range table.
+- [ ] All participant names, app name, one clear purpose sentence, target users,
+      languages/tools, and a working demonstration appear.
+- [ ] The final video is 1–3 minutes; speech is clear and text is legible.
+- [ ] Source credit remains visible; real and synthetic examples are distinct.
+- [ ] The 75 real-road IDs are not described as verified unique vehicles; the
+      synthetic queue is never presented as a queue from the free-flow video.
+- [ ] Cuts/precomputation are identified; no unsupported accuracy, school
+      adoption, safety, or congestion-reduction claims are spoken.
+- [ ] No secrets/profile details are shown. Review footage permission and
+      identifiable details before public publication. Hosted demo uploads must
+      be permitted for public sharing; private school footage belongs locally.
+- [ ] Student work and AI/tool assistance are accurately represented.
+- [ ] After publishing, check the public YouTube/Vimeo link while signed out.
 
-> "One more thing. The exit service time is the one number the app *estimates*
-> instead of counting, so here it is re-run at three values: peak queue 12, 14,
-> 17. Any scenario effect smaller than that spread isn't real. It is labelled a
-> sensitivity range, not a confidence interval, because no probability has been
-> computed."
-
-## 2:00 – 2:25 · Validation evidence and one limitation
-
-> "How do I know the measurements are right? The demo scene is generated by a
-> simulation, so the true position of every vehicle is known. I rebuilt the
-> counted series from those positions using the same rules the application uses.
-> Arrivals and exit crossings match exactly, and the region occupancy - every
-> vehicle inside the region, moving or not - agrees to a mean absolute error of
-> 0.028 vehicles across 1350 instants, with the small remainder coming from the
-> chart thinning rather than from a rule difference. The application's own
-> queued number is a different quantity and I report it separately: 0.188
-> vehicles, which is the half second of continuous slowness it demands before
-> it counts a vehicle at all."
-
-> "The limitation I have *not* solved: I have not validated the detector against
-> my own hand-counted annotations of a real clip. On the time-lapse footage I
-> tested with, the cars are a few pixels wide and the detector finds very few of
-> them — so I would not quote an accuracy number, and the app does not quote one
-> either."
-
-*Optionally:* press **Print brief** — one page, no footage, all definitions.
-
-## 2:25 – 2:45 · Contributions, tools, next step
-
-> "What I built on top of the open-source parts: the measurement regions and the
-> rule for what counts as queued, the censoring of unfinished waits, the
-> calibration of the twin from the footage, the three-way comparison, the
-> sensitivity range, and the synchronised replay that hides a vehicle when its
-> track is lost. YOLO and ByteTrack come from Ultralytics — I used Python and
-> FastAPI on the back end, TypeScript, React, Tailwind and Recharts on the front
-> end, SQLite for storage, and pytest plus vitest for the tests, with ruff,
-a type checker and continuous integration as gates. I used an AI coding
-> assistant, which is disclosed in full, and I can explain and defend every
-> number you have just seen."
-
-> "The next practical step is the one I have not done: hand-annotate a clip of
-> my own school gate and publish the error, so the detector's accuracy is a
-> measurement instead of an assumption. Thank you."
-
-> **Do not add a closing claim about congestion reduction.** None is measured,
-> and the rules and the app both forbid it.
-
----
-
-## Shot list
-
-| # | Shot | Why |
-| --- | --- | --- |
-| 1 | Home page, full window | establishes purpose and audience |
-| 2 | Transport bar playing, dots moving on the map | proves tracking, not a static chart |
-| 3 | A dot in a tracking gap briefly absent (optional) | the honesty point |
-| 4 | Event clicked, cursor at 01:17 | the connected instrument |
-| 5 | `why?` panel open on Peak queue | evidence, not assertion |
-| 6 | Bottleneck selected, 26 tracks highlighted | one cell → its vehicles |
-| 7 | Question preset pressed, three-way table | the comparison structure |
-| 8 | Corridor animation, both lanes | cause and effect |
-| 9 | Validation numbers on screen or in the brief | measured, not claimed |
-| 10 | Print brief page | the takeaway artifact |
-
-## Rehearsal checklist
-
-- [ ] `run.bat doctor` — all green, including the dependency-pin line
-- [ ] `run.bat check` — ruff, 277 backend tests, encoding, frontend typecheck, 50 frontend tests, frontend build
-- [ ] `python -m mypy` — clean (CI runs it; `check` does not)
-- [ ] Full walkthrough timed three times; third run under 3:00
-- [ ] Every number spoken matches the screen
-- [ ] Demo Dataset label is on screen whenever the synthetic data is used
-- [ ] Nothing shows a real school's name, a child, or a number plate
-- [ ] Audio clear in a noisy room; 1920×1080 at 30 fps
-
-## Reset procedure (do this before every recording)
-
-```bat
-run.bat doctor
-```
-1. Open `http://localhost:5173/` fresh (new tab).
-2. Click **Try Sample Analysis** — this always works, with or without footage.
-3. Press **Play**, then **Pause** at the transport.
-4. Click the **Peak queue reached** event.
-5. Press **why?** on the Peak queue card.
-6. Click **Rank 1** of the bottleneck cells.
-7. Go to **Simulation**, press **Spread +120 s**, then **Run simulated scenario**.
-8. Press **Play** under "Watch the two models".
-
-## Local fallback if the model is missing
-
-> "The detection weights download once on first use. The demo dataset does not
-> need them — it is stored measurements, which is why the demo always works."
-
-If the backend is down, show the exported brief: `docs/validation-measurement.md`
-plus the screenshots in `docs/screenshots/`, and say plainly that the app is not
-running.
-
-## Honest labels for anything accelerated
-
-- The demo dataset is **synthetic** and labelled on screen. Say it.
-- Processing is not sped up in the recording; if you cut the wait, say that the
-  clip was analysed beforehand.
-- Never present the model's output as a measured improvement.
+Video publication and application submission remain the student's actions.

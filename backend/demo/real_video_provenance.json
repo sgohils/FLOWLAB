@@ -1,0 +1,38 @@
+{
+  "title": "E18 traffic at Lysaker",
+  "source_title": "E18-Lysaker (02).ogv",
+  "author": "Kjetil_r",
+  "author_url": "https://commons.wikimedia.org/wiki/User:Kjetil_r",
+  "recorded_on": "2010-04-23",
+  "location": "E18 at Lysaker, Norway, toward Sandvika",
+  "source_url": "https://commons.wikimedia.org/wiki/File:E18-Lysaker_(02).ogv",
+  "source_revision_url": "https://commons.wikimedia.org/w/index.php?title=File:E18-Lysaker_(02).ogv&oldid=1217684255",
+  "download_url": "https://upload.wikimedia.org/wikipedia/commons/2/26/E18-Lysaker_%2802%29.ogv",
+  "license": "Public domain, author release",
+  "license_statement": "The author releases this own work into the public domain worldwide; where that is not possible, grants anyone use for any purpose without conditions unless required by law.",
+  "source_sha256": "1e9697382fff732a0335b8a300bb0418461e8e03e490790134a4cc6ce2d4cde7",
+  "modifications": [
+    "Source excerpt: 5.000 to 30.000 seconds (750 source frames at 30 fps).",
+    "Per-frame 2D similarity transform estimated from static-building feature matches to reduce handheld camera drift.",
+    "Fixed 64-pixel crop on each edge after stabilization; resized from 1152 x 592 to 960 x 494.",
+    "Ambient audio removed; H.264 MP4 encoded with yuv420p and faststart.",
+    "No generated vehicles, frame interpolation, timing changes or artificial vehicle motion."
+  ],
+  "duration_seconds": 25.0,
+  "fps": 30,
+  "width": 960,
+  "height": 494,
+  "limitations": [
+    "Free-flow highway traffic, not a school dismissal or standing queue.",
+    "Stabilization reduces visible handheld drift but does not make image coordinates a calibrated distance or speed.",
+    "No human ground-truth annotations or detector accuracy claims; a short public-footage showcase only.",
+    "Opposing vehicle flows, perspective, and distant occlusion may fragment tracks."
+  ],
+  "video_sha256": "0d152fea6e0cd42203e682804a949ccb67019e81181bd5deb5440aa0315378d7",
+  "sample_sha256": "0d152fea6e0cd42203e682804a949ccb67019e81181bd5deb5440aa0315378d7",
+  "model_file_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+  "vehicles_tracked": 75,
+  "vehicles_crossed_exit": 10,
+  "sampled_frames": 250,
+  "processing_seconds": 29.39
+}

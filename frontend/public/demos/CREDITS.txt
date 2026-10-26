@@ -1,0 +1,26 @@
+FLOWLAB REAL VIDEO EXAMPLE
+
+Original: E18-Lysaker (02).ogv
+Author: Kjetil_r
+Recorded: 23 April 2010, E18 at Lysaker, Norway
+Source: https://commons.wikimedia.org/wiki/File:E18-Lysaker_(02).ogv
+License revision: https://commons.wikimedia.org/w/index.php?title=File:E18-Lysaker_(02).ogv&oldid=1217684255
+Author: https://commons.wikimedia.org/wiki/User:Kjetil_r
+License: Public domain, author release (PD-self).
+The author releases this own work into the public domain worldwide; where that
+is not possible, the author grants use for any purpose without conditions
+unless required by law. This is an author release, not a CC0 declaration.
+
+Modifications for FLOWLAB: original seconds 5-30; background-feature camera
+stabilization; fixed 64-pixel edge crop; resized to 960x494; audio removed;
+H.264 MP4 encoding. The annotated copy adds detector boxes and track trails.
+Original timing is preserved: no generated vehicles or interpolated frames.
+
+This public-road clip is a free-flow pipeline example, not footage of a
+Georgia school or evidence of a tested school traffic intervention.
+Automated counts are tracker IDs and line crossings, not a manually verified
+accuracy benchmark. Perspective, occlusion and tracking gaps affect results.
+
+FLOWLAB student project: Shlok Gohil, GA-07.
+Source SHA-256: 1e9697382fff732a0335b8a300bb0418461e8e03e490790134a4cc6ce2d4cde7
+Excerpt SHA-256: 0d152fea6e0cd42203e682804a949ccb67019e81181bd5deb5440aa0315378d7

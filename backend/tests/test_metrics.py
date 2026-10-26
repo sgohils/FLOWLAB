@@ -130,6 +130,25 @@ def test_calibration_is_derived_from_the_scene():
     assert calibration.notes
 
 
+def test_free_flow_analysis_labels_the_departure_gap_capacity_proxy():
+    tracks = [
+        make_track(
+            index,
+            drive_through(0.05, y=0.6, step=STEP),
+            start=index * 3.0,
+            step=STEP,
+        )
+        for index in range(1, 4)
+    ]
+    analysis = build_analysis("free-flow", _video(), tracks, _regions(), min_track_points=3)
+    assert analysis.summary.peak_queue == 0
+    assert any(
+        "No complete queued-discharge window was available" in note
+        for note in analysis.calibration.notes
+    )
+    assert any("fastest quarter of positive gaps" in note for note in analysis.calibration.notes)
+
+
 def test_suggested_regions_cover_the_slow_cluster():
     """The auto-detected queue region must contain the vehicles that stop."""
     tracks = [

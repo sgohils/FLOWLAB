@@ -155,6 +155,29 @@ def test_sensitivity_is_deterministic():
     assert first.model_dump() == second.model_dump()
 
 
+def test_sensitivity_factor_one_repeats_the_exact_baseline_inputs_and_metrics():
+    analysis = _analysis()
+    analysis.arrivals = [3.2, 3.5, 4.1, 4.3, 5.0, 5.2, 5.8]
+    analysis.regions.sample_fps = 5
+    result = run_scenario(analysis, Scenario())
+    assert result.sensitivity is not None
+    middle = result.sensitivity.values[1]
+    assert middle.service_time_seconds == result.calibration.service_time_seconds
+    assert middle.peak_queue == result.baseline.peak_queue
+    assert middle.average_wait_seconds == result.baseline.average_wait_seconds
+    assert middle.throughput_per_minute == result.baseline.throughput_per_minute
+    assert middle.vehicles_left_at_window_end == result.baseline.vehicles_left_at_window_end
+    assert result.simulated == result.baseline
+
+
+def test_spread_queue_curve_includes_the_extended_scenario_window():
+    analysis = _analysis()
+    result = run_scenario(analysis, Scenario(spread_seconds=120))
+    assert result.simulated.observation_seconds == result.observed.observation_seconds + 120
+    assert result.simulated_queue[-1].time > result.observed.observation_seconds
+    assert result.baseline_queue[-1].time <= result.observed.observation_seconds
+
+
 def test_evidence_defaults_are_zero_not_required():
     empty = Evidence()
     assert empty.vehicles_tracked == 0

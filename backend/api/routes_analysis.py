@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, ValidationError
 from starlette.background import BackgroundTask
 
@@ -38,10 +38,12 @@ from .exports import (
 )
 from .jobs import STAGE_DEFINITIONS
 from .state import (
+    BUNDLED_IDS,
     DEMO_ID,
+    REAL_DEMO_ID,
     annotated_file,
+    bundled_analysis,
     database,
-    demo_analysis,
     is_processing,
     jobs,
     register_demo,
@@ -105,8 +107,8 @@ class MetaResponse(BaseModel):
 
 def _require_analysis(analysis_id: str) -> tuple[Analysis, list[Trajectory]]:
     """Load the stored analysis together with the tracks used to measure it."""
-    if analysis_id == DEMO_ID:
-        demo = demo_analysis()
+    if analysis_id in BUNDLED_IDS:
+        demo = bundled_analysis(analysis_id)
         if demo is not None:
             return demo, demo.trajectories
         raise api_error(503, "The demo dataset is not bundled with this build.")
@@ -218,17 +220,22 @@ def list_analyses(limit: int = Query(default=25, ge=1, le=100)) -> list[Analysis
                 throughput_per_minute=summary.get("throughput_per_minute"),
             )
         )
-    if settings.hosted and demo is not None and not any(
-        item.analysis_id == DEMO_ID for item in items
-    ):
+    for bundled_id in (DEMO_ID, REAL_DEMO_ID):
+        example = demo if bundled_id == DEMO_ID else bundled_analysis(bundled_id)
+        if example is None:
+            continue
+        # Bundled summaries always come from this build, including older DB
+        # records left by an earlier deployment of the synthetic example.
+        items = [item for item in items if item.analysis_id != bundled_id]
         items.append(AnalysisListItem(
-            analysis_id=DEMO_ID, filename=demo.video.filename, source="demo",
-            status="complete", created_at=demo.created_at, duration=demo.video.duration,
-            vehicles_tracked=demo.summary.vehicles_tracked,
-            peak_queue=demo.summary.peak_queue,
-            throughput_per_minute=demo.summary.throughput_per_minute,
+            analysis_id=bundled_id, filename=example.video.filename, source=example.source,
+            status="complete", created_at=example.created_at, duration=example.video.duration,
+            vehicles_tracked=example.summary.vehicles_tracked,
+            peak_queue=example.summary.peak_queue,
+            throughput_per_minute=example.summary.throughput_per_minute,
+            read_only=True,
         ))
-        items.sort(key=lambda item: item.created_at, reverse=True)
+    items.sort(key=lambda item: item.created_at, reverse=True)
     return items[:limit]
 
 
@@ -246,10 +253,10 @@ async def demo() -> Analysis:
 
 @router.get("/analyses/{analysis_id}/status", response_model=JobStatus)
 def analysis_status(analysis_id: str) -> JobStatus:
-    if analysis_id == DEMO_ID:
+    if analysis_id in BUNDLED_IDS:
         analysis, _ = _require_analysis(analysis_id)
         return JobStatus(
-            analysis_id=DEMO_ID, status="complete", stage="results", progress=1.0,
+            analysis_id=analysis_id, status="complete", stage="results", progress=1.0,
             stages=[], video=analysis.video,
             created_at=analysis.created_at, updated_at=analysis.created_at,
         )
@@ -320,10 +327,10 @@ async def update_regions(
     reloaded the page.
     """
     analysis, tracks = _require_analysis(analysis_id)
-    if analysis.source == "demo":
+    if analysis_id in BUNDLED_IDS:
         raise api_error(
             status.HTTP_400_BAD_REQUEST,
-            "The demo dataset is read-only: upload a video to draw your own regions.",
+            "Bundled examples are read-only: upload a video to draw your own regions.",
         )
     try:
         updated = await asyncio.to_thread(
@@ -346,7 +353,11 @@ async def update_regions(
 
 
 @router.get("/analyses/{analysis_id}/video/annotated", response_class=FileResponse)
-def annotated_video(analysis_id: str) -> FileResponse:
+def annotated_video(analysis_id: str) -> Response:
+    if analysis_id == REAL_DEMO_ID:
+        analysis, _ = _require_analysis(analysis_id)
+        if analysis.sample:
+            return RedirectResponse(analysis.sample.annotated_video_url)
     path = annotated_file(analysis_id)
     if path is None:
         raise api_error(
@@ -360,7 +371,11 @@ def annotated_video(analysis_id: str) -> FileResponse:
 
 
 @router.get("/analyses/{analysis_id}/video/source", response_class=FileResponse)
-def original_video(analysis_id: str) -> FileResponse:
+def original_video(analysis_id: str) -> Response:
+    if analysis_id == REAL_DEMO_ID:
+        analysis, _ = _require_analysis(analysis_id)
+        if analysis.sample:
+            return RedirectResponse(analysis.sample.video_url)
     path = source_file(analysis_id)
     if path is None:
         raise api_error(status.HTTP_404_NOT_FOUND, "The source video is no longer on disk.")
@@ -399,8 +414,8 @@ def delete_analysis(analysis_id: str) -> DeleteResult:
     so the response reports exactly how many files were removed and how much
     space was freed.  A running job is refused: it would recreate the files.
     """
-    if analysis_id == DEMO_ID:
-        raise api_error(status.HTTP_400_BAD_REQUEST, "The demo dataset cannot be deleted.")
+    if analysis_id in BUNDLED_IDS:
+        raise api_error(status.HTTP_400_BAD_REQUEST, "Bundled demo examples cannot be deleted.")
     if database.get(analysis_id) is None:
         raise api_error(status.HTTP_404_NOT_FOUND, f"No analysis with id '{analysis_id}'.")
     if is_processing(analysis_id):

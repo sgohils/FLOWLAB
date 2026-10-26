@@ -13,11 +13,14 @@ import {
 import { ApiError, api } from "../api/client";
 import { CorridorComparison } from "../components/CorridorComparison";
 import { CorridorMap } from "../components/CorridorMap";
+import { ScenarioTakeaway } from "../components/ScenarioTakeaway";
 import type { ScenarioPreset } from "../components/SimulationPanel";
 import { describePresets, offlinePresets, SimulationPanel } from "../components/SimulationPanel";
 import { Button, Label, Notice, Panel, Row, Section } from "../components/Primitives";
 import { useAnalysis } from "../state/AnalysisContext";
 import type { Scenario, SimulationResult } from "../types";
+import { comparisonSeries } from "../utils/simulationChart";
+import type { ComparisonPoint } from "../utils/simulationChart";
 import {
   deltaTone,
   formatNumber,
@@ -144,6 +147,9 @@ export default function Simulation() {
 
   const observed = result?.observed;
   const simulated = result?.simulated;
+  const unavailableSourceMetrics = new Set(
+    Object.entries(analysis?.summary ?? {}).filter(([, value]) => value === null).map(([metric]) => metric),
+  );
 
   /**
    * Results are stale as soon as a control moves away from the values that
@@ -282,6 +288,7 @@ export default function Simulation() {
                     A control has moved. Run the scenario again to update the comparison.
                   </Notice>
                 )}
+                {analysis && <ScenarioTakeaway analysis={analysis} result={result} stale={stale} />}
                 <div>
                   <Label>Scenario effect — modified model (C) vs baseline model (B)</Label>
                   <p className="mt-1 text-[12px] text-ink-faint">
@@ -329,11 +336,11 @@ export default function Simulation() {
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="text-[11px] text-ink-faint">{delta.label}</span>
                           <span className="font-mono text-[12px] text-ink-soft">
-                            {formatNumber(delta.observed)} → {formatNumber(delta.simulated)}
+                            {formatNumber(unavailableSourceMetrics.has(delta.metric) ? null : delta.observed)} → {formatNumber(delta.simulated)}
                           </span>
                         </div>
                         <p className="mt-1 font-mono text-[11px] text-ink-faint">
-                          {formatSigned(delta.absolute)} {delta.unit}
+                          {unavailableSourceMetrics.has(delta.metric) ? "Source measurement unavailable" : `${formatSigned(delta.absolute)} ${delta.unit}`}
                         </p>
                       </div>
                     ))}
@@ -344,8 +351,10 @@ export default function Simulation() {
                   <div className="px-2">
                     <Label>Three-way summary</Label>
                     <p className="mt-1 text-[12px] text-ink-faint">
-                      All three over the same observation window
-                      ({formatNumber(observed.observation_seconds)} s). "Left at end" is the
+                      {simulated.observation_seconds === observed.observation_seconds
+                        ? `All three cover the same ${formatNumber(observed.observation_seconds)} s window.`
+                        : `The source and baseline cover ${formatNumber(observed.observation_seconds)} s; the scenario covers ${formatNumber(simulated.observation_seconds)} s because arrivals are spread over a longer window.`}
+                      {" "}"Left at end" is the
                       number of vehicles still inside the corridor when the window ends;
                       for a recording it is not observable, so it is shown as —.
                     </p>
@@ -361,25 +370,25 @@ export default function Simulation() {
                       <tbody className="font-mono text-ink">
                         <SummaryRow
                           label="Peak queue (vehicles)"
-                          a={String(observed.peak_queue)}
+                          a={formatNumber(analysis?.summary.peak_queue === null ? null : observed.peak_queue, 0)}
                           b={String(result.baseline.peak_queue)}
                           c={String(simulated.peak_queue)}
                         />
                         <SummaryRow
                           label="Est. wait, mean (s)"
-                          a={formatNumber(observed.average_wait_seconds)}
+                          a={formatNumber(analysis?.summary.average_wait_seconds === null ? null : observed.average_wait_seconds)}
                           b={formatNumber(result.baseline.average_wait_seconds)}
                           c={formatNumber(simulated.average_wait_seconds)}
                         />
                         <SummaryRow
                           label="Est. wait, max (s)"
-                          a={formatNumber(observed.max_wait_seconds)}
+                          a={formatNumber(analysis?.summary.max_wait_seconds === null ? null : observed.max_wait_seconds)}
                           b={formatNumber(result.baseline.max_wait_seconds)}
                           c={formatNumber(simulated.max_wait_seconds)}
                         />
                         <SummaryRow
                           label="Throughput (veh/min)"
-                          a={formatNumber(observed.throughput_per_minute)}
+                          a={formatNumber(analysis?.summary.throughput_per_minute === null ? null : observed.throughput_per_minute)}
                           b={formatNumber(result.baseline.throughput_per_minute)}
                           c={formatNumber(simulated.throughput_per_minute)}
                         />
@@ -418,12 +427,12 @@ export default function Simulation() {
                   <Panel className="p-4">
                     <Label>How well the model reproduces the clip</Label>
                     <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">
-                      {result.fidelity.note}
+                      {analysis?.summary.peak_queue === null ? "The source peak queue is unavailable, so model agreement on that metric cannot be assessed." : result.fidelity.note}
                     </p>
                     <dl className="mt-3 space-y-1 text-[12px]">
                       <Row
                         label="Observed peak queue (A)"
-                        value={formatWithUnit(result.fidelity.peak_queue_observed, "vehicles")}
+                        value={formatWithUnit(analysis?.summary.peak_queue === null ? null : result.fidelity.peak_queue_observed, "vehicles")}
                       />
                       <Row
                         label="Baseline model peak queue (B)"
@@ -431,7 +440,7 @@ export default function Simulation() {
                       />
                       <Row
                         label="Observed mean wait (A)"
-                        value={formatWithUnit(result.fidelity.average_wait_observed, "s")}
+                        value={formatWithUnit(analysis?.summary.average_wait_seconds === null ? null : result.fidelity.average_wait_observed, "s")}
                       />
                       <Row
                         label="Baseline model mean wait (B)"
@@ -519,28 +528,15 @@ export default function Simulation() {
   );
 }
 
-interface ComparisonPoint {
-  time: number;
-  observed: number;
-  baseline: number | null;
-  simulated: number | null;
-}
-
 function ComparisonChart({ result }: { result: SimulationResult }) {
   // Recharts re-reads `data` on every render, and this page re-renders whenever
   // a control moves, so the series is built once per result rather than per
   // render.
   const data = useMemo<ComparisonPoint[]>(
-    () =>
-      result.observed_queue.map((sample, index) => ({
-        time: sample.time,
-        observed: sample.queue,
-        baseline: result.baseline_queue[index]?.queue ?? null,
-        simulated: result.simulated_queue[index]?.queue ?? null,
-      })),
+    () => comparisonSeries(result),
     [result],
   );
-  const lastTime = data.length > 0 ? data[data.length - 1].time : 1;
+  const lastTime = data.length > 0 ? Math.max(data[data.length - 1].time, 1) : 1;
   return (
     <div className="h-[280px] w-full">
       <Comparison data={data} maxTime={lastTime} />

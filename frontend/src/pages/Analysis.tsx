@@ -47,7 +47,7 @@ export default function Analysis() {
    */
   const commitRegions = useCallback(
     async (next: Regions) => {
-      if (!analysis || analysis.source === "demo") return;
+      if (!analysis || analysis.source === "demo" || analysis.sample) return;
       setRegions(next);
       setSaveError(null);
       const token = begin();
@@ -101,7 +101,7 @@ export default function Analysis() {
         <div>
           <Label>Analysis</Label>
           <h1 className="mt-1 font-mono text-[22px] tracking-tight text-ink">
-            {analysisId ?? "—"}
+            {analysis?.sample?.title ?? analysisId ?? "—"}
             {analysis?.source === "demo" && (
               <span className="ml-3 align-middle rounded border border-caution/40 bg-caution-soft px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-caution">
                 Demo Dataset
@@ -135,7 +135,7 @@ export default function Analysis() {
             >
               Print brief
             </Link>
-            {analysis.source !== "demo" && (
+            {analysis.source !== "demo" && !analysis.sample && (
               <Button variant="ghost" onClick={removeAnalysis} disabled={pending > 0}>
                 Delete
               </Button>

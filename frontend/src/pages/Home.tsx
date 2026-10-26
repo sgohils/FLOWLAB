@@ -5,6 +5,7 @@ import { ApiHealthBanner } from "../components/ApiHealthBanner";
 import { PipelineFlow } from "../components/PipelineFlow";
 import { ProcessingStatus } from "../components/ProcessingStatus";
 import { RecentAnalyses } from "../components/RecentAnalyses";
+import { RealDemoCard } from "../components/RealDemoCard";
 import { VideoUploader } from "../components/VideoUploader";
 import { Button, Label, Panel, Section } from "../components/Primitives";
 import { useAnalysis } from "../state/AnalysisContext";
@@ -113,6 +114,8 @@ export default function Home() {
         <PipelineFlow />
       </section>
 
+      <RealDemoCard />
+
       <ApiHealthBanner />
 
       <div id="upload">
@@ -209,6 +212,7 @@ export default function Home() {
             <ul className="mt-3 grid gap-2 text-[13px] leading-relaxed text-ink-soft">
               {[
                 "The uploaded and annotated videos can contain identifiable people and number plates. An anonymous track id does not anonymise the source footage.",
+                "There is no sign-in or per-user access control. Other visitors to a shared deployment can open saved analyses and videos; use only footage you can share publicly.",
                 "Nothing is deleted automatically. Press Delete on an analysis to remove its uploaded video, annotated video and results from the configured storage.",
                 "The processing backend downloads the YOLO model file on first use if it is not already available.",
                 "Do not use footage you are not permitted to use, and keep private school footage off shared machines.",

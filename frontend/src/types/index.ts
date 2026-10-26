@@ -166,6 +166,18 @@ export interface Calibration {
 }
 
 export interface Analysis {
+  sample?: {
+    title: string;
+    description: string;
+    author: string;
+    source_url: string;
+    license: string;
+    license_url: string;
+    processing_notes: string[];
+    video_url: string;
+    annotated_video_url: string;
+    poster_url: string;
+  } | null;
   analysis_id: string;
   source: AnalysisSource;
   video: VideoInfo;
@@ -213,6 +225,7 @@ export interface JobStatus {
 }
 
 export interface AnalysisListItem {
+  read_only?: boolean;
   analysis_id: string;
   filename: string;
   source: AnalysisSource;

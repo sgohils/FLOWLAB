@@ -3,9 +3,9 @@ import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { Button, Notice, Row } from "./Primitives";
 import type { Analysis, Scenario, SimulationResult } from "../types";
-import { formatFixed, formatNumber, formatWithUnit, vehicleLabel } from "../utils/format";
+import { formatFixed, formatNumber, formatSigned, formatWithUnit, vehicleLabel } from "../utils/format";
 /**
- * A printable one-page analysis brief.
+ * A printable analysis brief.
  *
  * It carries the evidence a reader needs to check the numbers - source, window,
  * comparison, and every assumption - and deliberately contains **no footage**:
@@ -20,6 +20,9 @@ export function PrintBrief() {
   useEffect(() => {
     if (!analysisId) return;
     let cancelled = false;
+    setAnalysis(null);
+    setSimulation(null);
+    setError(null);
     api
       .result(analysisId, 120)
       .then(async (result) => {
@@ -62,6 +65,11 @@ export function PrintBrief() {
 
   const summary = analysis.summary;
   const regions = analysis.regions;
+  const sourceLabel = analysis.source === "demo"
+    ? "synthetic traffic dataset"
+    : analysis.sample
+      ? "real public-road footage; precomputed analysis"
+      : "uploaded video";
 
   return (
     <div className="mx-auto max-w-[900px] print:max-w-none">
@@ -80,19 +88,41 @@ export function PrintBrief() {
           </h1>
           <p className="mt-1 font-mono text-[12px] text-ink-soft">
             {analysis.analysis_id} ·{" "}
-            {analysis.source === "demo" ? "DEMO DATASET (synthetic traffic)" : "uploaded video"}
+            {sourceLabel}
           </p>
         </header>
 
         <PrintSection title="Source and observation window">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[13px] sm:grid-cols-3">
-            <Row label="Source" value={analysis.source === "demo" ? "Demo Dataset" : "Uploaded clip"} />
+            <Row label="Source" value={analysis.sample?.title ?? (analysis.source === "demo" ? "Synthetic demo" : "Uploaded clip")} />
             <Row label="Duration" value={formatWithUnit(analysis.video.duration, "s")} />
             <Row label="Resolution" value={`${analysis.video.width}×${analysis.video.height}`} />
             <Row label="Source fps" value={formatNumber(analysis.video.fps)} />
             <Row label="Sampling" value={`${formatNumber(analysis.video.processed_fps)} fps`} />
             <Row label="Vehicles tracked" value={formatNumber(summary.vehicles_tracked, 0)} />
           </dl>
+          {analysis.sample && (
+            <div className="mt-4 space-y-2 border-t border-rule-soft pt-3 text-[12px] leading-relaxed text-ink-soft">
+              <p className="font-medium text-ink">{analysis.sample.title}</p>
+              <p>{analysis.sample.description}</p>
+              <p>
+                Footage by {analysis.sample.author}. Source:{" "}
+                <a className="break-words underline underline-offset-2" href={analysis.sample.source_url} target="_blank" rel="noreferrer">
+                  {analysis.sample.source_url}
+                </a>
+              </p>
+              <p>
+                Footage license:{" "}
+                <a className="underline underline-offset-2" href={analysis.sample.license_url} target="_blank" rel="noreferrer">
+                  {analysis.sample.license}
+                </a>
+                <span className="ml-1 break-words text-[11px] text-ink-faint">({analysis.sample.license_url})</span>
+              </p>
+              <ul className="list-disc space-y-1 pl-4 text-[11px] text-ink-faint">
+                {analysis.sample.processing_notes.map((note) => <li key={note}>{note}</li>)}
+              </ul>
+            </div>
+          )}
         </PrintSection>
 
         <PrintSection title="Measurement regions">
@@ -125,7 +155,7 @@ export function PrintBrief() {
           </div>
         </PrintSection>
 
-        <PrintSection title="Measured results">
+        <PrintSection title={analysis.source === "demo" ? "Synthetic demo measurements" : "Video-derived measurements"}>
           <table className="w-full border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b border-rule text-[10px] uppercase tracking-[0.12em] text-ink-faint">
@@ -230,38 +260,43 @@ export function PrintBrief() {
 
         {simulation && (
           <PrintSection title="Observed versus the unmodified model">
-            <table className="w-full border-collapse text-left text-[13px]">
+            <table aria-label="Observed and baseline model comparison" className="w-full border-collapse text-left text-[13px]">
               <thead>
                 <tr className="border-b border-rule text-[10px] uppercase tracking-[0.12em] text-ink-faint">
                   <th className="py-1.5 pr-3 font-medium">Quantity</th>
-                  <th className="py-1.5 pr-3 font-medium">A · Observed</th>
+                  <th className="py-1.5 pr-3 font-medium">A · {analysis.source === "demo" ? "Synthetic demo" : "Video-derived"}</th>
                   <th className="py-1.5 pr-3 font-medium">B · Baseline model</th>
                   <th className="py-1.5 font-medium">B − A</th>
                 </tr>
               </thead>
               <tbody>
-                <TableRow
-                  k="Peak queue"
-                  v={`${simulation.observed.peak_queue} / ${simulation.baseline.peak_queue}`}
-                  d={`model ratio ${simulation.fidelity.ratio ?? "n/a"}`}
+                <BaselineRow
+                  label="Peak queue (vehicles)"
+                  observed={summary.peak_queue === null ? null : simulation.observed.peak_queue}
+                  baseline={simulation.baseline.peak_queue}
                 />
-                <TableRow
-                  k="Est. wait (mean, s)"
-                  v={`${formatNumber(simulation.observed.average_wait_seconds)} / ${formatNumber(simulation.baseline.average_wait_seconds)}`}
-                  d="completed visits only"
+                <BaselineRow
+                  label="Est. wait (mean, s)"
+                  observed={summary.average_wait_seconds === null ? null : simulation.observed.average_wait_seconds}
+                  baseline={simulation.baseline.average_wait_seconds}
                 />
-                <TableRow
-                  k="Throughput (veh/min)"
-                  v={`${formatNumber(simulation.observed.throughput_per_minute)} / ${formatNumber(simulation.baseline.throughput_per_minute)}`}
-                  d={`over ${formatNumber(simulation.baseline.observation_seconds)} s`}
+                <BaselineRow
+                  label="Throughput (veh/min)"
+                  observed={simulation.observed.throughput_per_minute}
+                  baseline={simulation.baseline.throughput_per_minute}
                 />
-                <TableRow
-                  k="Left at window end"
-                  v={`— / ${simulation.baseline.vehicles_left_at_window_end}`}
-                  d="not observable in a recording"
+                <BaselineRow
+                  label="Left at window end"
+                  observed={null}
+                  baseline={simulation.baseline.vehicles_left_at_window_end}
                 />
               </tbody>
             </table>
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+              Both cover {formatNumber(simulation.baseline.observation_seconds)} s. Wait averages use completed visits only.
+              {" "}Unavailable source measurements are shown as —, not zero.
+              The number left at the window end is not observable in the recording, so A and its difference are shown as —.
+            </p>
             <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
               {simulation.fidelity.note} Model outcome, not a guaranteed result.
             </p>
@@ -285,8 +320,9 @@ export function PrintBrief() {
               pedestrians.
             </li>
             <li>
-              The video and the annotated video are stored locally and can contain
-              identifiable people or plates; anonymous ids do not anonymise the footage.
+              Original and annotated footage can contain identifiable people or plates;
+              anonymous ids do not anonymise the footage. Keep private uploads restricted.
+              This brief contains no footage.
             </li>
           </ul>
         </PrintSection>
@@ -298,9 +334,14 @@ export function PrintBrief() {
             <Row label="Classes" value="car, bus, truck, motorcycle, bicycle" />
             <Row label="Smoothing" value="exponential, 0.55, bypassed on jumps" />
             <Row label="Gap threshold" value={formatWithUnit(2.5 / regions.sample_fps, "s", 3)} />
-            <Row label="Brief generated" value={new Date().toISOString().slice(0, 19).replace("T", " ")} />
+            <Row label="Brief generated" value={`${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`} />
           </dl>
         </PrintSection>
+        <footer className="pt-4 text-[10px] leading-relaxed text-ink-faint">
+          FLOWLAB · Created by Shlok Gohil · Georgia's 7th Congressional District (GA-07)
+          <br />
+          Congressional App Challenge · Measurements and model assumptions are shown for review; no real-world outcome is guaranteed.
+        </footer>
       </article>
     </div>
   );
@@ -333,15 +374,31 @@ function TableRow({ k, v, d }: { k: string; v: string; d: string }) {
   );
 }
 
+function BaselineRow({ label, observed, baseline }: {
+  label: string;
+  observed: number | null;
+  baseline: number;
+}) {
+  return (
+    <tr className="border-b border-rule-soft last:border-0">
+      <th scope="row" className="py-1.5 pr-3 font-normal text-ink-soft">{label}</th>
+      <td className="py-1.5 pr-3 font-mono text-ink">{formatNumber(observed)}</td>
+      <td className="py-1.5 pr-3 font-mono text-ink">{formatNumber(baseline)}</td>
+      <td className="py-1.5 font-mono text-ink">{formatSigned(observed === null ? null : baseline - observed)}</td>
+    </tr>
+  );
+}
+
 function RegionFigure({ analysis }: { analysis: Analysis }) {
   const aspect = analysis.video.height / Math.max(1, analysis.video.width);
+  const viewHeight = 100 * aspect;
   const height = Math.max(60, Math.round(220 * aspect));
   const points = analysis.regions.queue
-    .map(([x, y]) => `${x * 100},${y * 100}`)
+    .map(([x, y]) => `${x * 100},${y * viewHeight}`)
     .join(" ");
   return (
-    <svg viewBox="0 0 100 60" className="w-full border border-rule bg-white" style={{ maxHeight: height }}>
-      <rect x="0" y="0" width="100" height="60" fill="#ffffff" />
+    <svg role="img" aria-label="Measurement regions in the complete video frame" viewBox={`0 0 100 ${viewHeight}`} className="w-full border border-rule bg-white" style={{ maxHeight: height }}>
+      <rect x="0" y="0" width="100" height={viewHeight} fill="#ffffff" />
       {analysis.regions.queue.length >= 3 && (
         <polygon points={points} fill="rgba(29,78,216,0.12)" stroke="#1d4ed8" strokeWidth="0.4" />
       )}
@@ -352,9 +409,9 @@ function RegionFigure({ analysis }: { analysis: Analysis }) {
           <line
             key={name}
             x1={line[0][0] * 100}
-            y1={line[0][1] * 100}
+            y1={line[0][1] * viewHeight}
             x2={line[1][0] * 100}
-            y2={line[1][1] * 100}
+            y2={line[1][1] * viewHeight}
             stroke={name === "entry" ? "#0f766e" : "#b45309"}
             strokeWidth="0.6"
           />
@@ -363,14 +420,14 @@ function RegionFigure({ analysis }: { analysis: Analysis }) {
       {analysis.trajectories.slice(0, 40).map((track) => (
         <polyline
           key={track.vehicle_id}
-          points={track.points.map((p) => `${p.x * 100},${p.y * 100}`).join(" ")}
+          points={track.points.map((p) => `${p.x * 100},${p.y * viewHeight}`).join(" ")}
           fill="none"
           stroke={track.queue_seconds > 0 ? "#1d4ed8" : "#9aa0a8"}
           strokeWidth="0.18"
           opacity="0.75"
         />
       ))}
-      <text x="2" y="58" fontSize="3" fill="#7b8189" fontFamily="monospace">
+      <text x="2" y={viewHeight - 2} fontSize="3" fill="#7b8189" fontFamily="monospace">
         image coordinates — no real-world scale
       </text>
     </svg>

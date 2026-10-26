@@ -2,21 +2,23 @@
 
 ## Services and routing
 
-The root `vercel.json` defines `backend` and `frontend`. The root service from
+The root `vercel.json` defines `backend`, `frontend` and `uploads`. The root service from
 the suggested configuration was a second detection of the same Python app,
 so there is no `app` service. The backend root remains `.` because imports and
 Python package metadata are relative to the repository root.
 
-The service names, public paths, private queue subscriber and frontend-to-backend
-binding below were confirmed by the repository owner.
+The `uploads` service runs the Node/Hono Blob handler separately from the Vite
+service. A services-mode Vite build emits the static frontend; placing a Node
+handler alongside it does not give that handler its own service build. The SPA
+fallback also excludes `/api` so API requests cannot be rewritten to HTML.
 
 | Public path | Service | Purpose |
 | --- | --- | --- |
-| `/api/blob-upload` | frontend | Node function for Blob upload authorization/callbacks |
+| `/api/blob-upload` | uploads | Node function for Blob upload authorization/callbacks |
 | `/api/*` | backend | FastAPI metadata, results, media, simulation, upload intents |
 | Everything else | frontend | Vite assets and React navigation |
 
-The frontend Node function calls the backend using its `BACKEND_URL` binding.
+The uploads Node service calls the backend using its `BACKEND_URL` binding.
 Vercel supplies this URL at runtime. It is never a `VITE_*` variable, a build
 input, a fixed hostname, or a middleware dependency. Browser calls use the
 public same-origin `/api` paths. Rewrites preserve the API prefix.
@@ -43,7 +45,7 @@ no additional service binding is needed.
 2. Connect a managed PostgreSQL database and configure `DATABASE_URL`, using
    the provider's TLS settings. No specific PostgreSQL vendor is required.
 3. Create and connect a **private** Vercel Blob store. Configure
-   `BLOB_READ_WRITE_TOKEN` for the frontend's upload-token handler and backend
+   `BLOB_READ_WRITE_TOKEN` for the uploads service's token handler and backend
    object operations. Do not expose it in a `VITE_*` variable.
 4. Enable Vercel Queues for the project. The SDK uses the deployment's OIDC
    identity. The topic is `flowlab-video`; publishing uses region `iad1`.
@@ -99,8 +101,12 @@ no additional service binding is needed.
    media downloads, and deletion. Blob callbacks need a reachable URL; the
    browser also calls completion so local testing can finalize an upload.
 
-The local CLI check detected both services and accepted the routing/binding
-configuration. Startup stopped because this checkout's `.venv` has no `pip`.
+The local CLI resolves three services: Python `backend`, static `frontend` and
+Node/Hono `uploads`, with the backend binding on `uploads`. The upload service
+was exercised through `vercel dev` with an isolated local configuration: GET
+returned JSON with status 405 and POST returned the expected JSON 503 for an
+intentionally absent backend binding. Full-project startup still stops because
+this checkout's `.venv` has no `pip`.
 Repair that environment (`.venv/Scripts/python.exe -m ensurepip --upgrade` on
 Windows), install the runtime dependencies, and rerun `vercel dev` after
 connecting the hosted environment. No live PostgreSQL/Blob/Queues integration

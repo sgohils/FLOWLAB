@@ -4,9 +4,10 @@ Everything the simulator needs is estimated from the analysed footage:
 
 ``arrival_rate``      N / dt over the arrival series (vehicles per minute)
 ``arrival_headway``   mean gap between consecutive arrivals
-``service_time``      typical gap between consecutive *departures* - this is
-                      the capacity of the exit, and it is what a scenario can
-                      improve by adding a channel or speeding up processing
+``service_time``      departure-capacity proxy from queued discharge when a
+                      complete busy window exists, otherwise from the fastest
+                      quarter of positive departure gaps; not a validated gate
+                      capacity, particularly for free-flow or multi-lane footage
 ``free_flow_seconds`` travel time of vehicles that never queued - converted
                       into the simulated free-flow speed
 ``mean_traversal``    mean observed time from first to last sighting
@@ -20,10 +21,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from itertools import pairwise
 from statistics import fmean, median, quantiles
+from typing import Literal
 
 from ..models.schemas import Calibration
 
-#: Used only when the footage contains no usable line crossings at all.
+#: Used when the footage has no usable departure-capacity estimate.
 FALLBACK_SERVICE_TIME = 3.0
 MIN_SERVICE_TIME = 1.0
 
@@ -38,6 +40,7 @@ def calibrate(
     free_flow_candidates: Sequence[float],
     mean_wait_seconds: float | None,
     vehicles_used: int,
+    departure_capacity_method: Literal["queued_discharge", "fastest_departure_gaps"] | None = None,
 ) -> Calibration:
     notes: list[str] = []
     minutes = max(observation_seconds, 1e-6) / 60.0
@@ -53,16 +56,35 @@ def calibrate(
     if service_time is None:
         service_time = FALLBACK_SERVICE_TIME
         notes.append(
-            "Exit service time could not be measured (no exit line, or no queue to "
-            f"measure the discharge rate); the simulator uses a default of "
+            "Exit service time could not be estimated (no exit line or too few "
+            f"usable departure gaps); the simulator uses a default of "
             f"{service_time:.1f}s."
+        )
+    elif departure_capacity_method == "queued_discharge":
+        notes.append(
+            "Exit service time = 60 / the highest vehicles-per-minute in a complete "
+            "queued-discharge window. This is an observed discharge proxy, not a "
+            "validated gate capacity; region selection and multiple lanes can affect it."
+        )
+    elif departure_capacity_method == "fastest_departure_gaps":
+        notes.append(
+            "No complete queued-discharge window was available. Exit service time "
+            "uses the mean of the fastest quarter of positive gaps between exit "
+            "crossings. This is an assumed capacity proxy: it does not establish "
+            "saturated exit capacity or show that a queue was observed, and "
+            "crossings can include multiple lanes."
         )
     else:
         notes.append(
-            "Exit service time = 60 / (highest vehicles-per-minute actually leaving "
-            "the exit while a queue was present). A queue keeps the exit at full "
-            "capacity, so this is the observed discharge rate; it is a lower bound "
-            "on the true processing time."
+            "Exit service time uses a supplied departure-headway estimate whose "
+            "estimation method was not recorded. It is a model calibration input, "
+            "not a validated capacity measurement."
+        )
+    if round(service_time, 3) < MIN_SERVICE_TIME:
+        notes.append(
+            f"The departure-headway estimate ({service_time:.3f}s) is below the "
+            f"simulator's minimum service time; the model uses {MIN_SERVICE_TIME:.1f}s "
+            "per vehicle instead. This floor is a model assumption, not a measurement."
         )
     service_time = max(MIN_SERVICE_TIME, round(service_time, 3))
 

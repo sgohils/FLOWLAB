@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from statistics import fmean, median
+from typing import Literal
 
 from ..models.schemas import Trajectory
 from .geometry import first_crossing_time
@@ -78,8 +79,9 @@ class FlowStats:
     per_minute: float | None
     mean_headway: float | None
     median_headway: float | None
-    #: Fastest quarter of the gaps - a proxy for the processing capacity.
+    #: Queued discharge, or the fastest quarter of gaps as a capacity proxy.
     capacity_headway: float | None
+    capacity_method: Literal["queued_discharge", "fastest_departure_gaps"] | None
 
 
 def flow_statistics(
@@ -94,13 +96,16 @@ def flow_statistics(
         service_time = window / vehicles_leaving_the_window
 
     over a rolling window that lies entirely inside a queue episode.  While a
-    queue exists the exit - not the arrival rate - limits the system, so this
-    is the observed capacity.  Counting crossings (rather than measuring the
+    queue exists the exit can limit the system. Counting crossings (rather than measuring the
     gap between them) also makes the estimate robust to a measurement line
-    that cuts across several lanes at slightly different moments.
+    that cuts across several lanes at slightly different moments. If no complete
+    busy window is available, the fastest quarter of positive departure gaps is
+    used as a proxy instead. ``capacity_method`` records which path was used;
+    neither method by itself validates a real gate's processing capacity.
     """
     gaps = headways(crossings.times)
     capacity: float | None = None
+    capacity_method: Literal["queued_discharge", "fastest_departure_gaps"] | None = None
     if busy_window is not None and crossings.count >= 2:
         start, end = busy_window
         rates = [
@@ -112,18 +117,21 @@ def flow_statistics(
         ]
         if rates:
             capacity = 60.0 / max(rates)
+            capacity_method = "queued_discharge"
     if capacity is None and gaps:
         # No queue episode to measure: fall back to the fastest quarter of the
-        # observed gaps, which at least bounds the capacity from below.
+        # observed gaps, as a capacity proxy with no claim of saturated flow.
         ordered = sorted(gaps)
         cutoff = max(1, int(len(ordered) * 0.25))
         capacity = fmean(ordered[:cutoff])
+        capacity_method = "fastest_departure_gaps"
     return FlowStats(
         count=crossings.count,
         per_minute=rate_per_minute(crossings.count, observation_seconds),
         mean_headway=fmean(gaps) if gaps else None,
         median_headway=median(gaps) if gaps else None,
         capacity_headway=capacity,
+        capacity_method=capacity_method,
     )
 
 

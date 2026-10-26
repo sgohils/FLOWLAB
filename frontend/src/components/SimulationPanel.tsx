@@ -61,7 +61,7 @@ const FALLBACK_PRESETS: ScenarioPreset[] = [
   {
     key: "faster_exit",
     label: "Exit 50% faster",
-    question: "What if each vehicle took half as long at the gate?",
+    question: "What if the gate processed vehicles at 1.5 times its original rate?",
     patch: { volume: 1, serviceMultiplier: 1.5, spreadSeconds: 0, channels: 1 },
   },
   {

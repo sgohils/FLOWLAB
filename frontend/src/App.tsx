@@ -5,12 +5,13 @@ import Home from "./pages/Home";
 import Analysis from "./pages/Analysis";
 import Simulation from "./pages/Simulation";
 import NotFound from "./pages/NotFound";
+import About from "./pages/About";
 
 function Header() {
   const { analysisId } = useAnalysis();
   return (
     <header className="sticky top-0 z-30 border-b border-rule bg-paper/95 backdrop-blur-sm">
-      <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-6">
+      <div className="mx-auto flex min-h-14 max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 sm:flex-nowrap sm:px-6 sm:py-0">
         <Link to="/" className="flex items-baseline gap-2">
           <span className="font-mono text-[15px] font-semibold tracking-tight text-ink">
             FLOWLAB
@@ -19,7 +20,7 @@ function Header() {
             traffic digital twin
           </span>
         </Link>
-        <nav aria-label="Sections" className="flex items-center gap-1 text-[13px]">
+        <nav aria-label="Sections" className="order-last flex w-full items-center gap-1 text-[13px] sm:order-none sm:w-auto">
           <NavLink
             to="/"
             end
@@ -51,6 +52,7 @@ function Header() {
           >
             Simulation
           </NavLink>
+          <NavLink to="/about" className={({ isActive }) => `rounded px-2.5 py-1.5 ${isActive ? "bg-accent-soft text-accent" : "text-ink-soft hover:text-ink"}`}>About</NavLink>
         </nav>
         <div className="ml-auto flex items-center gap-4">
           {analysisId && (
@@ -74,6 +76,7 @@ function Footer() {
   return (
     <footer className="border-t border-rule py-6">
       <div className="mx-auto max-w-[1400px] space-y-1 px-6 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mb-2 font-medium text-ink-soft">Created by Shlok Gohil · GA-07 · <Link to="/about" className="underline">About this project</Link></p>
         <p>
           FLOWLAB tracks vehicles, never people: there is no face, plate, identity or
           demographic processing in this application. Every metric is a documented
@@ -86,6 +89,8 @@ function Footer() {
           not change that. Use Delete on an analysis to remove its files, and only use
           footage you have permission to use. Hosted deployments use private cloud
           storage; local deployments store footage on the backend machine.
+          {" "}This app has no account access controls: anyone with access to the
+          deployment can open its saved analyses and videos.
         </p>
       </div>
     </footer>
@@ -114,6 +119,7 @@ function Shell() {
       >
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
           <Route path="/analysis" element={<Analysis />} />
           <Route path="/analysis/:analysisId" element={<Analysis />} />
           <Route path="/brief/:analysisId" element={<PrintBrief />} />

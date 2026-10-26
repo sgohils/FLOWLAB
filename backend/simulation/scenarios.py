@@ -54,14 +54,17 @@ def build_arrivals(
     * ``volume < 1``  -> drop vehicles at evenly spaced indices, so the
       remaining vehicles keep their real order and spacing.
     * ``volume > 1``  -> keep every observed vehicle and insert extra ones at a
-      fixed spacing around the same window.
-    * ``spread``      -> linearly stretch the whole sequence so it occupies
-      ``span + spread`` seconds instead of ``span``.
+      deterministic spacing within the observation window.
+    * ``spread``      -> keep the first arrival at its recorded time and extend
+      the arrival burst by the requested number of seconds. With no spreading,
+      recorded timestamps are preserved, including any initial or final idle time.
 
     The result is fully deterministic: the same inputs always give the same
     arrivals, which is what makes the comparison reproducible.
     """
-    base = sorted(observed) or [0.0]
+    base = sorted(observed)
+    if not base:
+        return []
     if span <= 0:
         span = max(base[-1], 1.0)
 
@@ -78,14 +81,18 @@ def build_arrivals(
         for index in range(extra):
             offset = (index + 1) * _EXTRA_SPACING * seed_factor(seed)
             position = base[0] + (window * (index + 1)) / (extra + 1)
-            arrivals.append(position + offset)
+            arrivals.append(min(max(span, base[-1]), position + offset))
         arrivals.extend(base)
 
     arrivals.sort()
+    if spread_seconds <= 0:
+        return arrivals
     first, last = arrivals[0], arrivals[-1]
-    target_span = max(span + spread_seconds, 0.5)
     current_span = last - first
-    scale = target_span / current_span if current_span > 1e-6 else 1.0
+    if current_span <= 1e-6:
+        # One timestamp cannot be stretched into an arrival pattern.
+        return arrivals
+    scale = (current_span + spread_seconds) / current_span
     return [round(first + (t - first) * scale, 3) for t in arrivals]
 
 
@@ -114,29 +121,30 @@ def plan_scenario(
         observation,
         scenario.seed,
     )
-    # The arrival series is rescaled onto the window above; anchoring it at zero
-    # keeps the simulated timeline and the clip timeline aligned.
-    if arrivals and arrivals[0] > 0:
-        offset = arrivals[0]
-        arrivals = [round(max(0.0, moment - offset), 3) for moment in arrivals]
     service_time = max(
         0.5, round(calibration.service_time_seconds / scenario.service_multiplier, 3)
     )
 
     if abs(scenario.volume - 1.0) > 1e-9:
         notes.append(
-            f"Traffic volume {scenario.volume:+.0%}: {len(arrivals)} vehicles instead of "
+            f"Traffic volume {scenario.volume - 1:+.0%}: {len(arrivals)} vehicles instead of "
             f"{len(observed_arrivals)}."
         )
     if scenario.spread_seconds > 0:
-        notes.append(
-            f"Arrivals spread over {observation + scenario.spread_seconds:.0f}s "
-            f"instead of {observation:.0f}s."
-        )
+        if len(set(arrivals)) >= 2:
+            notes.append(
+                f"Arrival burst extended by {scenario.spread_seconds:.0f}s, keeping its first "
+                f"timestamp. Model window {window:.0f}s instead of {observation:.0f}s."
+            )
+        else:
+            notes.append(
+                "Fewer than two distinct arrival timestamps: no arrival burst could be "
+                f"spread. Model window {window:.0f}s instead of {observation:.0f}s."
+            )
     if abs(scenario.service_multiplier - 1.0) > 1e-9:
         notes.append(
             f"Exit service time {service_time:.2f}s per vehicle "
-            f"({scenario.service_multiplier:.2f}x observed)."
+            f"({scenario.service_multiplier:.2f}x observed exit processing rate)."
         )
     if scenario.channels > 1:
         notes.append(f"A second exit processing channel is open ({scenario.channels} lanes).")
@@ -156,22 +164,16 @@ def plan_scenario(
 
 def describe(scenario: Scenario) -> str:
     """Short human label for the scenario, used in the UI header."""
-    if abs(scenario.volume - 1.0) < 1e-9 and abs(scenario.service_multiplier - 1.0) < 1e-9:
-        base = "Observed"
-    else:
-        parts = []
-        if abs(scenario.volume - 1.0) > 1e-9:
-            parts.append(f"volume {scenario.volume:+.0%}")
-        if abs(scenario.service_multiplier - 1.0) > 1e-9:
-            parts.append(
-                "faster exit" if scenario.service_multiplier > 1 else "slower exit"
-            )
-        if scenario.spread_seconds > 0:
-            parts.append(f"spread +{scenario.spread_seconds:.0f}s")
-        if scenario.channels > 1:
-            parts.append("second exit lane")
-        base = ", ".join(parts)
-    return base or "Observed"
+    parts = []
+    if abs(scenario.volume - 1.0) > 1e-9:
+        parts.append(f"volume {scenario.volume - 1:+.0%}")
+    if abs(scenario.service_multiplier - 1.0) > 1e-9:
+        parts.append("faster exit" if scenario.service_multiplier > 1 else "slower exit")
+    if scenario.spread_seconds > 0:
+        parts.append(f"spread +{scenario.spread_seconds:.0f}s")
+    if scenario.channels > 1:
+        parts.append("second exit lane")
+    return ", ".join(parts) or "Observed"
 
 
 def presets(observed: Scenario) -> dict[str, Scenario]:

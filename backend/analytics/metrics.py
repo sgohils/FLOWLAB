@@ -104,8 +104,8 @@ def build_analysis(
     # --- 3. entry / exit line crossings -----------------------------------
     entry = collect_crossings(kept, regions.entry, step, regions.entry_direction)
     exit_ = collect_crossings(kept, regions.exit, step, regions.exit_direction)
-    # The window in which a queue was present: the exit ran at full capacity
-    # there, which is what calibrates the service rate of the digital twin.
+    # A queued window can provide a discharge-capacity proxy. If there is no
+    # complete window, flow_statistics reports the departure-gap fallback.
     busy_window = _busy_window(series, exit_.times)
     entry_stats = flow_statistics(entry, duration)
     exit_stats = flow_statistics(exit_, duration, busy_window)
@@ -156,6 +156,7 @@ def build_analysis(
         free_flow_candidates=free_flow_candidates,
         mean_wait_seconds=waits.average,
         vehicles_used=len(kept),
+        departure_capacity_method=exit_stats.capacity_method,
     )
 
     summary = _summary(

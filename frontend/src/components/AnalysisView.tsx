@@ -233,12 +233,13 @@ export function AnalysisView({
             {staleNotice(analysis, pending)}
             <VideoViewer
               src={videoUrl}
+              poster={analysis.sample?.poster_url}
               regions={regions ?? analysis.regions}
               tool={tool}
               onChange={(next) => onCommitRegions(next)}
-              editable
+              editable={!analysis.sample}
             />
-            <RegionEditor
+            {!analysis.sample && <RegionEditor
               regions={regions}
               tool={tool}
               onToolChange={onToolChange}
@@ -249,7 +250,22 @@ export function AnalysisView({
               saving={pending > 0}
               error={saveError}
               editable
-            />
+            />}
+            {analysis.sample && (
+              <Panel className="p-4 text-[12px] leading-relaxed text-ink-soft">
+                <p className="font-medium text-ink">Real footage · precomputed analysis · read-only example</p>
+                <p className="mt-1">{analysis.sample.description}</p>
+                <p className="mt-2">
+                  Video by {analysis.sample.author}.{" "}
+                  <a href={analysis.sample.source_url} target="_blank" rel="noreferrer" className="text-accent underline">Original source</a>
+                  {" · "}<a href={analysis.sample.license_url} target="_blank" rel="noreferrer" className="text-accent underline">{analysis.sample.license}</a>
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {analysis.sample.processing_notes.map((note) => <li key={note}>{note}</li>)}
+                </ul>
+                <p className="mt-2">Upload the downloadable sample video to try your own measurement regions.</p>
+              </Panel>
+            )}
           </div>
         ) : (
           <Panel className="p-8 text-center">

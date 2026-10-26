@@ -13,8 +13,28 @@ vehicles, give each one an anonymous id, measure where they queue and how long
 they wait, show where traffic repeatedly slows down, and let you test one
 operational change against a baseline.
 
-Everything runs locally. There is no cloud service, no account, and no
-face, plate or identity processing anywhere in the code.
+FLOWLAB runs locally or as a hosted Vercel project. Hosted uploads use private
+video storage, PostgreSQL and queued processing. There is no face, plate or
+identity recognition in the application.
+The shared deployment has no sign-in or per-user access controls: visitors can
+open saved analyses and footage. Use publicly shareable footage there and run
+locally for private school recordings.
+
+**Created by Shlok Gohil · Georgia's 7th Congressional District.**
+
+The bundled **real traffic example** opens at `/analysis/real-demo`: a licensed
+25-second public-road clip, its annotated replay and precomputed measurements.
+Download its footage from the home page to try the upload workflow yourself.
+The separate `/analysis/demo` example is a synthetic queue sandbox. See
+[video provenance](backend/demo/real_video_provenance.json),
+[source credits](frontend/public/demos/CREDITS.txt), and the
+[Congressional App Challenge preparation guide](docs/CAC_SUBMISSION.md).
+
+[![Public-domain traffic footage from Lysaker, Norway](frontend/public/demos/traffic-poster.jpg)](frontend/public/demos/traffic-source.mp4)
+
+The real example and synthetic sandbox need no paid services or cloud storage
+credentials. The [recording outline](docs/DEMO_SCRIPT.md) covers a 2:45
+demonstration, with real measurements and synthetic experiments kept distinct.
 
 ---
 
@@ -187,8 +207,8 @@ The install downloads roughly 1.2 GB, most of it torch.
 
 Nothing to train. FLOWLAB uses the pretrained **Ultralytics YOLO11n**
 checkpoint (`yolo11n.pt`, ~5.6 MB). It is downloaded automatically the first time
-a job runs, which needs internet access once; after that the application is
-entirely local. To use a local checkpoint instead:
+a job needs it, if it is not already available. Local processing can then use
+the cached checkpoint; hosted mode still uses cloud services. To use a local checkpoint instead:
 
 ```bat
 set FLOWLAB_MODEL=C:\models\yolo11s.pt
@@ -325,10 +345,10 @@ never run here. Treat the container path as unproven.
 
 ### Vercel services
 
-The root [vercel.json](vercel.json) prepares two services in one project:
+The root [vercel.json](vercel.json) prepares three services in one project:
 `backend` (FastAPI) receives `/api/*`, except `/api/blob-upload`, which runs on
-`frontend` (Vite + a Node upload function). Frontend receives all other paths;
-React navigation falls back to `index.html`. The backend's service
+`uploads` (Node/Hono). The static `frontend` (Vite) receives all other paths;
+React navigation falls back to `index.html`, excluding `/api` paths. The backend's service
 root is `.` so Python can import `backend.main:app` and install dependencies
 from the root `pyproject.toml`. There is no separate root `app` application.
 
@@ -336,7 +356,7 @@ Hosted mode uses managed PostgreSQL for metadata, a **private Vercel Blob**
 store for uploaded videos and immutable result versions, and **Vercel Queues**
 for processing. The private subscriber `backend.worker` runs independently of
 API requests, retries transient failures, and stores progress in PostgreSQL.
-The browser uploads videos directly to Blob. The frontend's Node function
+The browser uploads videos directly to Blob. The dedicated uploads service
 authorizes uploads through its `BACKEND_URL` service binding to `backend`.
 That variable is injected by Vercel at runtime; do not set it yourself or put
 it in the static bundle. Leave `VITE_API_URL` unset for same-origin routing.
@@ -805,18 +825,24 @@ roughly tripled the detections, which is what the ROI control is for.
 ## Privacy and retention
 
 **What FLOWLAB does not do:** no face, plate, identity or demographic
-processing; no cloud upload; no telemetry; no accounts. Only COCO vehicle
+processing, telemetry or accounts. Only COCO vehicle
 classes are requested from the detector, and the detector module re-checks the
 class of every box it accepts.
 
 **What is still true of the footage, and is stated in the interface, the
-footer and the docs:** the uploaded video and the annotated video are stored on
-this machine and can contain identifiable people and number plates. An anonymous
+footer and the docs:** uploaded and annotated videos are stored on the backend
+machine in local mode and in private Blob storage in hosted mode. They can
+contain identifiable people and number plates. An anonymous
 track id does not anonymise the source footage.
 
+The shared API has no sign-in or per-user access controls. Private Blob objects
+do not make footage private to one visitor: anyone with access to the deployment
+can open its saved analyses and video routes. Use publicly shareable footage on
+the shared demo; run locally or add access controls for private recordings.
+
 **Retention:** nothing is deleted automatically. Files live under
-`data/` (`uploads/`, `processed/<id>/`, `flowlab.db`) until **Delete** is
-pressed on an analysis, which removes the upload, the annotated video, the
+`data/` (`uploads/`, `processed/<id>/`, `flowlab.db`) in local mode; hosted mode
+uses Blob objects and PostgreSQL records. **Delete** removes the upload, the annotated video, the
 result payload and the database row, and reports how many files and how many
 bytes it freed.
 
@@ -824,9 +850,9 @@ bytes it freed.
 filename (a filename like `St Marys dismissal.mp4` is identifying) and no local
 file paths. Every export carries its own definitions and a privacy note.
 
-**Network activity:** one request on first use, to download the YOLO weights.
-After that the application is entirely local. It is not "completely offline"
-until the weights are on disk.
+**Network activity:** the processor downloads YOLO weights when they are
+unavailable. Local analysis can use cached weights without hosted services.
+Hosted processing uses network connections to PostgreSQL, Blob and Queues.
 
 **Before a public demonstration:** use footage you are permitted to use. Do not
 show private school footage of children on a shared machine.

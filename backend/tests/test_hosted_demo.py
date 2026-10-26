@@ -79,7 +79,8 @@ def test_hosted_list_includes_bundled_demo_without_creating_a_row(hosted_client,
     monkeypatch.setattr(routes_analysis, "database", database)
     response = hosted_client.get("/api/analyses")
     assert response.status_code == 200
-    assert [item["analysis_id"] for item in response.json()] == ["demo"]
+    assert {item["analysis_id"] for item in response.json()} == {"demo", "real-demo"}
+    assert all(item["read_only"] for item in response.json())
     database.create.assert_not_called()
 
 

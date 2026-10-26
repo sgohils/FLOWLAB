@@ -307,6 +307,21 @@ class Evidence(BaseModel):
         return self.vehicles_tracked < 5 or self.missing_sample_share > 0.15
 
 
+class SampleProvenance(BaseModel):
+    """Credits and processing context for a read-only, real-video example."""
+
+    title: str
+    description: str
+    author: str
+    source_url: str
+    license: str
+    license_url: str
+    processing_notes: list[str]
+    video_url: str
+    annotated_video_url: str
+    poster_url: str
+
+
 class Analysis(BaseModel):
     analysis_id: str
     source: Source
@@ -331,6 +346,7 @@ class Analysis(BaseModel):
     departures: list[float] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     created_at: float
+    sample: SampleProvenance | None = None
 
 
 class StageStatus(BaseModel):
@@ -364,6 +380,7 @@ class AnalysisListItem(BaseModel):
     vehicles_tracked: int
     peak_queue: int | None = None
     throughput_per_minute: float | None = None
+    read_only: bool = False
 
 
 class Scenario(BaseModel):

@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 #: Fixed id of the bundled demo dataset.
 DEMO_ID = "demo"
 DEMO_FILE = BACKEND_DIR / "demo" / "sample_analysis.json"
+REAL_DEMO_ID = "real-demo"
+REAL_DEMO_FILE = BACKEND_DIR / "demo" / "real_analysis.json"
+BUNDLED_IDS = frozenset((DEMO_ID, REAL_DEMO_ID))
 
 if settings.hosted:
     from ..storage.postgres import PostgresDatabase
@@ -54,6 +57,26 @@ def demo_analysis() -> Analysis | None:
         return None
 
 
+@lru_cache(maxsize=1)
+def real_demo_analysis() -> Analysis | None:
+    """Read real detector output bundled with the licensed public-road footage."""
+    if not REAL_DEMO_FILE.exists():
+        return None
+    try:
+        return Analysis.model_validate_json(REAL_DEMO_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.warning("Real video example could not be loaded: %s", exc)
+        return None
+
+
+def bundled_analysis(analysis_id: str) -> Analysis | None:
+    if analysis_id == DEMO_ID:
+        return demo_analysis()
+    if analysis_id == REAL_DEMO_ID:
+        return real_demo_analysis()
+    return None
+
+
 def save_analysis(
     analysis: Analysis, raw_tracks: Sequence[Trajectory] | None = None
 ) -> None:
@@ -70,8 +93,8 @@ def save_analysis(
 
 def load_analysis(analysis_id: str) -> Analysis | None:
     """Serve the bundled demo without requiring any external storage."""
-    if analysis_id == DEMO_ID:
-        return demo_analysis()
+    if analysis_id in BUNDLED_IDS:
+        return bundled_analysis(analysis_id)
     payload = read_result(settings, analysis_id)
     if payload:
         try:

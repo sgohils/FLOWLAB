@@ -17,13 +17,50 @@ for a separate disclosure form.
 | Tool | Role |
 | --- | --- |
 | AI coding assistant (Kilo, running in Visual Studio Code) | wrote and modified code, ran tests, drove a headless browser to verify the interface |
+| OpenAI Codex | hosted deployment fixes, real-video demo preparation/integration, scenario explanations, tests, and submission documentation |
 | Git | version control, used by the student to review and keep changes |
-| Python, Node, OpenCV, Ultralytics YOLO, Recharts, React | ordinary third-party libraries, not AI products |
+| Pretrained Ultralytics YOLO | AI model used by the application for vehicle detection; no custom model training is claimed |
+| Python, Node, OpenCV, ByteTrack, Recharts, React | programming/runtime, vision/tracking and interface libraries |
 | Chrome (headless) | automated screenshots to check that the interface renders |
 
-No generative-image, text-to-video or external API service was used. The only
-network access the application makes is the one-time download of the YOLO
-checkpoint described in the README.
+No generative-image or text-to-video tool was used for the demonstration footage.
+The real sample is an existing public-domain video, with its source and edits
+recorded in `backend/demo/real_video_provenance.json`. The separate synthetic
+sample is generated mathematically and labeled synthetic.
+
+Hosted deployments make network calls to PostgreSQL, Vercel Blob and Vercel
+Queues, as well as the initial model download when weights are absent. Local
+deployments use local storage and processing.
+
+### October 25, 2026 preparation work
+
+Codex found and checked reusable footage, stabilized/cropped/resized/encoded a
+25-second excerpt, and ran the existing detector/tracker/analytics pipeline.
+Codex added the read-only real example, source credits and download links,
+project attribution supplied by the user, an About page, scenario evidence
+notes, print-brief corrections, exact calibration-method explanations, tests,
+and a submission checklist/script. Automated counts are not human ground truth.
+
+Final review clarified that private Blob objects do not provide user-level
+privacy: the shared deployment has no sign-in or per-user API access controls.
+Anyone with deployment access can list/open saved analyses and videos. The
+interface and demonstration guidance therefore restrict hosted examples to
+footage permitted for public sharing and direct private school footage to a
+local deployment. No authentication migration was implemented in this work.
+
+The student must review this work, document their own actual contributions,
+and fully disclose this assistance. These changes do not establish that the
+student independently authored the generated code, nor do they establish
+competition eligibility or detector accuracy.
+
+For the application drafts, the student reported witnessing an accident before
+school as the motivation, coding at home, completing on October 25, 2026, and
+finding/testing data. These are student-reported contributions, not independent
+verification of an accuracy study or custom model training. Codex drafted form
+responses and recording instructions from the known project facts and those
+answers, and rendered an HTML/CSS cover to a 600x800 JPEG using an actual frame
+of FLOWLAB's annotated output and its recorded metrics. No generative-image
+model was used for the cover.
 
 ---
 
@@ -398,8 +435,8 @@ and how it was tested, so the student can challenge any of them.
 
 See `docs/STUDENT_CONTRIBUTIONS.md`. In summary:
 
-- Complete the annotated validation on a real clip (the AI cannot annotate
-  footage the student has permission to use on the student's behalf).
+- Complete independent manual validation on a permitted real clip. Keep the
+  student's reference annotations separate from automated detector output.
 - Own at least one implemented change, with the design decision written down.
 - Write the motivation, the story and the reflection in their own words.
 - Verify the district and national requirements, including whether a separate

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.analytics.throughput import (
+    Crossings,
     collect_crossings,
     flow_statistics,
     headways,
@@ -69,6 +72,38 @@ def test_capacity_headway_uses_the_fastest_quarter_of_gaps():
     stats = flow_statistics(collect_crossings(tracks, EXIT_LINE, 0.5), observation_seconds=60.0)
     assert stats.capacity_headway is not None
     assert stats.capacity_headway < stats.mean_headway
+    assert stats.capacity_method == "fastest_departure_gaps"
+
+
+def test_capacity_method_records_a_complete_queued_discharge_window():
+    times = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 20.0, 40.0]
+    stats = flow_statistics(
+        Crossings(times=times, per_vehicle=dict(enumerate(times)), available=True),
+        observation_seconds=60.0,
+        busy_window=(0.0, 30.0),
+    )
+    assert stats.capacity_method == "queued_discharge"
+    assert stats.capacity_headway == pytest.approx(30.0 / 7)
+
+
+def test_short_queue_window_truthfully_records_the_departure_gap_fallback():
+    times = [0.0, 2.0, 4.0, 40.0]
+    stats = flow_statistics(
+        Crossings(times=times, per_vehicle=dict(enumerate(times)), available=True),
+        observation_seconds=60.0,
+        busy_window=(0.0, 20.0),
+    )
+    assert stats.capacity_method == "fastest_departure_gaps"
+    assert stats.capacity_headway == 2.0
+
+
+def test_no_departure_gaps_has_no_capacity_estimation_method():
+    stats = flow_statistics(
+        Crossings(times=[5.0], per_vehicle={1: 5.0}, available=True),
+        observation_seconds=60.0,
+    )
+    assert stats.capacity_headway is None
+    assert stats.capacity_method is None
 
 
 def test_headways_ignores_non_positive_gaps():

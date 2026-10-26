@@ -11,6 +11,7 @@ const MAX_QUEUE_CORNERS = 12;
 
 interface VideoViewerProps {
   src: string;
+  poster?: string | null;
   regions: Regions;
   tool: DrawTool;
   onChange: (regions: Regions) => void;
@@ -32,6 +33,7 @@ const STROKES: Record<Exclude<DrawTool, "none">, string> = {
 
 export function VideoViewer({
   src,
+  poster,
   regions,
   tool,
   onChange,
@@ -138,7 +140,7 @@ export function VideoViewer({
   }, [tool]);
 
   const pointsToPath = (points: Point[]) =>
-    points.map(([x, y]) => `${(x * 100).toFixed(3)}%,${(y * 100).toFixed(3)}%`).join(" ");
+    points.map(([x, y]) => `${x.toFixed(4)},${y.toFixed(4)}`).join(" ");
 
   return (
     <Panel className="overflow-hidden">
@@ -172,6 +174,8 @@ export function VideoViewer({
           <video
             ref={videoRef}
             src={src}
+            poster={poster ?? undefined}
+            preload="metadata"
             className="block h-full w-full"
             onLoadedMetadata={(event) => {
               const video = event.currentTarget;
@@ -215,7 +219,6 @@ export function VideoViewer({
               fill={COLOURS.queue}
               stroke={STROKES.queue}
               strokeWidth={0.0035}
-              vectorEffect="non-scaling-stroke"
               strokeDasharray="0.02 0.012"
             />
           )}
@@ -225,7 +228,6 @@ export function VideoViewer({
               fill="rgba(29,78,216,0.08)"
               stroke={STROKES.queue}
               strokeWidth={0.0035}
-              vectorEffect="non-scaling-stroke"
             />
           )}
           {draft.map(([x, y], index) => (
@@ -235,7 +237,6 @@ export function VideoViewer({
               cy={y}
               r={0.008}
               fill="#1d4ed8"
-              vectorEffect="non-scaling-stroke"
             />
           ))}
           {(["entry", "exit"] as const).map((name) => {
@@ -250,7 +251,6 @@ export function VideoViewer({
                   y2={line[1][1]}
                   stroke={STROKES[name]}
                   strokeWidth={0.004}
-                  vectorEffect="non-scaling-stroke"
                 />
                 <text
                   x={line[0][0] + 0.02}

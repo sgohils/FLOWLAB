@@ -77,7 +77,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(message, response.status, hint);
   }
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new ApiError(
+      "The FLOWLAB API returned an unexpected response.", 502,
+      "Check the deployment's API routing. API requests must reach functions rather than index.html.",
+    );
+  }
 }
 
 export const api = {
@@ -96,11 +103,24 @@ export const api = {
       { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: file.name, size: file.size }) },
     );
-    const { upload } = await import("@vercel/blob/client");
-    await upload(intent.pathname, file, {
+    // Request the short-lived, scoped client token through our API client so
+    // authorization errors retain their message/hint instead of the SDK's
+    // generic "Failed to retrieve the client token" error.
+    const { clientToken } = await request<{ clientToken: string }>("/api/blob-upload", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "blob.generate-client-token",
+        payload: { pathname: intent.pathname, clientPayload: JSON.stringify(intent), multipart: true },
+      }),
+    });
+    if (typeof clientToken !== "string" || !clientToken.startsWith("vercel_blob_client_")) {
+      throw new ApiError("The upload endpoint did not return a valid client token.", 502,
+        "Check the /api/blob-upload function and the frontend's API routing.");
+    }
+    const { put } = await import("@vercel/blob/client");
+    await put(intent.pathname, file, {
       access: "private",
-      handleUploadUrl: `${BASE}/api/blob-upload`,
-      clientPayload: JSON.stringify(intent),
+      token: clientToken,
       multipart: true,
       contentType: file.type || "video/mp4",
       onUploadProgress: ({ percentage }) => onProgress?.(percentage / 100),

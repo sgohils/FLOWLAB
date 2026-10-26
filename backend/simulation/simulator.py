@@ -13,10 +13,10 @@ corridor length.  The gate is modelled as a virtual stopped leader: whenever
 all ``channels`` are busy, the first vehicle in line has to stop at ``x = 1``
 and a queue forms behind it - which is exactly the mechanism we want to study.
 
-Why not a queueing formula?  Because the metrics the UI compares
-(peak queue, average wait, throughput) are then measured from simulated
-*vehicle states* with the same definitions used for the video, so "observed vs
-simulated" compares like with like.
+The metrics the UI compares (peak queue, average wait, throughput) are computed
+from simulated *vehicle states*. The video uses a drawn image region and
+completed queue visits, while the model uses corridor states and completed
+vehicles; these differences are disclosed alongside the comparison.
 
 The model is deterministic: no randomness anywhere, so running the same
 scenario twice gives byte-identical results.
@@ -137,7 +137,7 @@ def simulate(
             next_id += 1
 
         active = [v for v in vehicles if v.is_active]
-        if not active and not pending:
+        if not active and not pending and moment > window + 1e-9:
             break
         # Positions are already ordered because vehicles never overtake.
         active.sort(key=lambda v: v.position)
@@ -263,21 +263,20 @@ def simulate(
             vehicle.wait_seconds += last_time - vehicle.waiting_since
             vehicle.waiting_since = None
 
-    # One pass instead of three comprehensions: the ``is None`` test is made
-    # where it is used, so ``departure`` is a float below.  A vehicle still in
-    # the corridor at the end of the run has no departure time and cannot
-    # contribute a delay.
+    # The tail records paths after the measurement window, but those later
+    # completions must not inflate window throughput or make the end queue vanish.
+    # Wait/delay summaries include only vehicles that completed within the window.
     waited: list[float] = []
     completed: list[SimVehicle] = []
     total_delay = 0.0
     for vehicle in vehicles:
-        if vehicle.departure is None:
+        if vehicle.departure is None or vehicle.departure > window + 1e-9:
             continue
         completed.append(vehicle)
         if vehicle.wait_seconds > 0:
             waited.append(vehicle.wait_seconds)
         total_delay += max(0.0, (vehicle.departure - vehicle.arrival) - free_flow)
-    in_window = [v for v in completed if v.arrival <= window + 1e-9]
+    arrivals_in_window = [v for v in vehicles if v.arrival <= window + 1e-9]
     queue_values = [sample.queue for sample in queue_samples if sample.time <= window + 1e-9]
 
     return SimulationRun(
@@ -287,13 +286,13 @@ def simulate(
         average_queue=round(fmean(queue_values), 2) if queue_values else 0.0,
         average_wait=round(fmean(waited), 2) if waited else 0.0,
         max_wait=round(max(waited), 2) if waited else 0.0,
-        throughput_per_minute=round(len(in_window) * 60.0 / window, 2) if window > 0 else 0.0,
+        throughput_per_minute=round(len(completed) * 60.0 / window, 2) if window > 0 else 0.0,
         total_delay_seconds=round(total_delay, 2),
-        departures_in_window=len(in_window),
+        departures_in_window=len(completed),
         window_seconds=round(window, 2),
-        arrival_count=len(vehicles),
+        arrival_count=len(arrivals_in_window),
         free_flow_seconds=round(free_flow, 2),
-        unserved=len(vehicles) - len(completed),
+        unserved=len(arrivals_in_window) - len(completed),
     )
 
 
@@ -336,14 +335,14 @@ DISCLAIMER = (
 
 
 def resample(series: Sequence[QueueSample], times: Sequence[float]) -> list[QueueSample]:
-    """Nearest-sample resampling so both curves can share one time axis."""
+    """Use the latest sampled state at or before each requested timestamp."""
     if not series or not times:
         return []
     source_times = [sample.time for sample in series]
     out: list[QueueSample] = []
     cursor = 0
     for moment in times:
-        while cursor + 1 < len(source_times) and source_times[cursor + 1] < moment:
+        while cursor + 1 < len(source_times) and source_times[cursor + 1] <= moment:
             cursor += 1
         out.append(QueueSample(time=round(moment, 3), queue=series[cursor].queue))
     return out
@@ -460,17 +459,19 @@ def service_time_sensitivity(
     confidence interval, and no probability is implied.
     """
     calibration = analysis.calibration
-    baseline_service = max(0.5, calibration.service_time_seconds)
+    baseline_plan = plan_scenario(Scenario(), calibration, list(analysis.arrivals))
+    baseline_service = baseline_plan.service_time
+    step = 1.0 / max(5.0, analysis.regions.sample_fps)
     points: list[SensitivityPoint] = []
     for factor in factors:
-        service = round(baseline_service * factor, 3)
+        service = max(0.5, round(baseline_service * factor, 3))
         run = simulate(
-            list(analysis.arrivals),
-            window_seconds=calibration.observation_seconds,
+            baseline_plan.arrival_times,
+            window_seconds=baseline_plan.window_seconds,
             free_flow_seconds=calibration.free_flow_seconds,
             service_time=service,
-            channels=1,
-            output_step=1.0 / 10.0,
+            channels=baseline_plan.channels,
+            output_step=step,
         )
         points.append(
             SensitivityPoint(
@@ -501,7 +502,8 @@ def service_time_sensitivity(
         note=(
             "This shows how much the model output depends on an estimated "
             "parameter. It is not a statistical confidence interval and implies "
-            "no probability."
+            "no probability. Wait averages exclude vehicles still inside at the "
+            "window end, so the completed-vehicle cohort can change with service time."
         ),
     )
 
@@ -537,12 +539,18 @@ def run_scenario(
     )
 
     observed_queue = list(analysis.queue_timeseries)
-    # All three curves share the observed time axis when one exists, so the
-    # comparison is over an explicitly identical window.
+    # Reuse the measured grid within the recording, and include C's longer
+    # window when spreading arrivals. Missing observations beyond A stay missing.
     if observed_queue:
         grid = [sample.time for sample in observed_queue]
         baseline_queue = resample(baseline_run.queue_series, grid)
-        simulated_queue = resample(run.queue_series, grid)
+        scenario_grid = list(grid)
+        if plan.window_seconds > baseline_plan.window_seconds:
+            next_time = scenario_grid[-1] + step
+            while next_time <= plan.window_seconds + 1e-9:
+                scenario_grid.append(round(next_time, 3))
+                next_time += step
+        simulated_queue = resample(run.queue_series, scenario_grid)
     else:
         baseline_queue = baseline_run.queue_series
         simulated_queue = run.queue_series
@@ -557,13 +565,26 @@ def run_scenario(
 
     notes = list(plan.notes)
     notes.append(
-        "Simulated queue = vehicles stopped in the corridor. The video queue "
-        "region is the equivalent area in the real scene."
+        "The video queue counts slow vehicles inside the drawn region; the model "
+        "counts stopped vehicles in a simplified corridor. The geometries and "
+        "measurement definitions are not identical."
+    )
+    notes.append(
+        "Observed mean wait uses completed queue visits. Model mean wait uses "
+        "positive waiting time per vehicle that completed service inside the window; "
+        "zero-wait vehicles are excluded. A vehicle may make multiple observed visits, "
+        "so the denominators can differ."
     )
     if run.unserved:
         notes.append(
             f"{run.unserved} simulated vehicles were still in the corridor when the "
             "observation window ended; they are excluded from the wait statistics."
+        )
+    if baseline_run.unserved or run.unserved:
+        notes.append(
+            "Wait statistics include only vehicles that completed service inside "
+            "each window. Different numbers left at the end mean different completion "
+            "cohorts; a lower mean wait alone does not establish an improvement."
         )
     if not analysis.arrivals:
         notes.append(

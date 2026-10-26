@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FLOWLAB submission cover</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 600px; height: 800px; overflow: hidden; }
+    body { font-family: Arial, sans-serif; color: #15181c; background: #f6f6f3; }
+    main { height: 800px; padding: 34px 32px 26px; display: flex; flex-direction: column; }
+    header { display: flex; align-items: center; justify-content: space-between; }
+    .brand { font: bold 48px/1 Consolas, monospace; letter-spacing: -3px; }
+    .district { color: #1d4ed8; border: 1px solid #c9d7ff; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-weight: bold; }
+    h1 { font-size: 34px; line-height: 1.12; font-weight: 600; letter-spacing: -1px; margin: 22px 0 10px; }
+    .subtitle { font-size: 16px; line-height: 1.4; color: #59616c; margin: 0 0 24px; }
+    figure { margin: 0; border: 1px solid #d9dce0; border-radius: 10px; overflow: hidden; background: #15181c; }
+    figcaption { padding: 11px 14px; font: 11px Consolas, monospace; color: white; letter-spacing: 1.1px; }
+    video { display: block; width: 100%; aspect-ratio: 960 / 494; object-fit: contain; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 16px; border: 1px solid #d9dce0; border-radius: 8px; background: white; }
+    .metric { padding: 15px 12px; }
+    .metric + .metric { border-left: 1px solid #e4e6e9; }
+    .value { font: bold 33px/1.1 Consolas, monospace; }
+    .label { color: #59616c; font-size: 12px; margin-top: 6px; }
+    .scope { color: #59616c; font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
+    footer { margin-top: auto; padding-top: 16px; border-top: 1px solid #d9dce0; }
+    .creator { font-size: 17px; font-weight: bold; }
+    .credit { font-size: 11px; line-height: 1.45; color: #69717c; margin-top: 7px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header><div class="brand">FLOWLAB</div><div class="district">GA-07</div></header>
+    <h1>See traffic.<br>Explore what could change.</h1>
+    <p class="subtitle">Video analysis. Visible evidence. Traffic experiments.</p>
+    <figure>
+      <figcaption>ACTUAL FLOWLAB OUTPUT · REAL TRAFFIC FOOTAGE</figcaption>
+      <video muted playsinline preload="auto" src="../../frontend/public/demos/traffic-annotated.mp4"></video>
+    </figure>
+    <div class="metrics">
+      <div class="metric"><div class="value">75</div><div class="label">Retained track IDs</div></div>
+      <div class="metric"><div class="value">10</div><div class="label">Exit-line crossings</div></div>
+      <div class="metric"><div class="value">25 s</div><div class="label">Sample duration</div></div>
+    </div>
+    <p class="scope">Automated measurements from a real public-road sample.<br>Track IDs are not a verified count of unique vehicles.</p>
+    <footer>
+      <div class="creator">Shlok Gohil · Congressional App Challenge</div>
+      <div class="credit">Footage: Kjetil_r · E18, Lysaker, Norway · Public domain, author release.<br>Stabilized excerpt; annotated by FLOWLAB. Source details: demos/CREDITS.txt.</div>
+    </footer>
+  </main>
+  <script>
+    const video = document.querySelector('video');
+    video.addEventListener('loadedmetadata', () => { video.currentTime = 4.5; }, { once: true });
+  </script>
+</body>
+</html>

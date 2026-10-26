@@ -25,6 +25,7 @@ describe("describePresets", () => {
     ]);
     expect(described.map((preset) => preset.key)).toEqual(["lower_volume", "faster_exit"]);
     expect(described[0].label).toBe("Volume -25%");
+    expect(described[1].question).toBe("What if the gate processed vehicles at 1.5 times its original rate?");
   });
 
   it("passes the backend's numbers through as a patch", () => {

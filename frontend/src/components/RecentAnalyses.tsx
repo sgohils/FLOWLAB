@@ -107,7 +107,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
             {items.map((item) => {
               const current = item.analysis_id === currentId;
               const running = item.status === "queued" || item.status === "processing";
-              const demo = item.source === "demo";
+              const demo = item.source === "demo" || Boolean(item.read_only);
               return (
                 <li
                   key={item.analysis_id}
@@ -120,7 +120,7 @@ export function RecentAnalyses({ currentId }: { currentId: string | null }) {
                       </span>
                       {demo && (
                         <span className="rounded border border-caution/40 bg-caution-soft px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-caution">
-                          demo
+                          {item.source === "video" ? "real footage" : "demo"}
                         </span>
                       )}
                       {current && (

@@ -69,6 +69,13 @@ export function VideoUploader({ meta, onUploaded }: VideoUploaderProps) {
 
   return (
     <div className="space-y-4">
+      {meta?.storage_mode === "hosted" && (
+        <Notice tone="caution" title="Shared demo">
+          This deployment has no sign-in. Other visitors can open saved analyses
+          and videos. Upload only footage you can share publicly; run FLOWLAB
+          locally for private school footage.
+        </Notice>
+      )}
       <Panel className="p-6">
         <div
           onDragOver={(event) => {
